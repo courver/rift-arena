@@ -1,7 +1,10 @@
 import Phaser from 'phaser';
-import { DEBUG, FONT, H, TOTAL_WAVES, TOUCH, W, hex } from '../config';
+import { DEBUG, FONT, H, PORTRAIT, TOTAL_WAVES, TOUCH, W, hex } from '../config';
 import type { Slot } from '../data/heroes';
 import { BOSS_PHASES } from '../data/enemies';
+import { ARENA } from '../config';
+
+const ARENA_TOP = ARENA.y + 10;
 import type { Enemy } from '../game/Enemy';
 import { defOf } from '../game/cards';
 import type { GameScene } from '../scenes/GameScene';
@@ -94,7 +97,7 @@ export class Hud {
 
   /** "New enemy" card on the left, so players learn each type the first time it shows up. */
   hint(name: string, desc: string, color: number) {
-    const y = (TOUCH ? 130 : 70) + this.hintY * 52;
+    const y = (PORTRAIT ? ARENA_TOP + 10 : TOUCH ? 130 : 70) + this.hintY * 52;
     this.hintY = (this.hintY + 1) % 3;
     const bg = this.s.add.rectangle(0, 0, 330, 46, 0x0b0d16, 0.85).setStrokeStyle(2, color).setOrigin(0, 0.5);
     const t1 = this.s.add.text(10, -11, `新敌人 · ${name}`, { fontFamily: FONT, fontSize: '14px', fontStyle: 'bold', color: hex(color) }).setOrigin(0, 0.5);
@@ -102,6 +105,24 @@ export class Hud {
     const c = this.s.add.container(-340, y, [bg, t1, t2]).setDepth(70);
     this.s.tweens.add({ targets: c, x: 50, duration: 300, ease: 'Cubic.easeOut' });
     this.s.tweens.add({ targets: c, alpha: 0, delay: 4500, duration: 500, onComplete: () => c.destroy() });
+  }
+
+  /** First-run tips, one after another near the bottom of the screen. */
+  tutorial(touch: boolean) {
+    const tips = touch
+      ? ['左半屏按住拖动 = 移动', '主武器会自动瞄准最近的敌人开火', '右下按钮：Q 闪避 · E 技能 · R 大招', '每清完一波，三选一升级或更换武器技能']
+      : ['WASD 移动，鼠标瞄准', '主武器会自动朝准星开火（F 可切换为按住左键）', 'Q / 空格 闪避 · E 技能 · R 大招', '每清完一波，三选一升级或更换武器技能'];
+    tips.forEach((tip, i) => {
+      this.s.time.delayedCall(i * 3600, () => {
+        const y = touch ? H * 0.62 : H - 150;
+        const t = this.s.add.text(W / 2, y, tip, {
+          fontFamily: FONT, fontSize: '20px', color: '#ffffff', backgroundColor: '#1a1f33cc', padding: { x: 16, y: 10 },
+          stroke: '#000', strokeThickness: 2, align: 'center', wordWrap: { width: W - 80, useAdvancedWrap: true },
+        }).setOrigin(0.5).setDepth(75).setAlpha(0);
+        this.s.tweens.add({ targets: t, alpha: 1, y: y - 10, duration: 250 });
+        this.s.tweens.add({ targets: t, alpha: 0, delay: 3100, duration: 300, onComplete: () => t.destroy() });
+      });
+    });
   }
 
   pulse(slot: Slot) {
@@ -129,7 +150,7 @@ export class Hud {
     // HP bar with a trailing "recent damage" segment
     this.shownHp += (p.hp - this.shownHp) * 0.08;
     if (this.shownHp < p.hp) this.shownHp = p.hp;
-    const bw = 280;
+    const bw = PORTRAIT ? 200 : 280;
     g.fillStyle(0x000000, 0.6).fillRect(48, 8, bw + 4, 22);
     g.fillStyle(0xffffff, 0.5).fillRect(50, 10, bw * (this.shownHp / p.stats.maxHp), 18);
     const frac = p.hp / p.stats.maxHp;

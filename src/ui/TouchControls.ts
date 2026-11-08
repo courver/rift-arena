@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { FONT, H, W, hex } from '../config';
+import { FONT, H, PORTRAIT, W, hex } from '../config';
 import type { SkillSlot } from '../data/heroes';
 import type { GameScene } from '../scenes/GameScene';
 import { SKILLS } from '../game/skills';
@@ -45,7 +45,7 @@ export class TouchControls {
     pause.on('pointerdown', () => s.openPause());
 
     s.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
-      if (this.stickId !== -1 || p.x > W * 0.5) return;
+      if (this.stickId !== -1 || p.x > W * (PORTRAIT ? 0.6 : 0.5) || p.y < 100) return;
       this.stickId = p.id;
       this.ox = p.x;
       this.oy = p.y;
@@ -97,7 +97,7 @@ export class TouchControls {
         g.fillStyle(0xffffff, 0.45).fillCircle(this.ox + Math.cos(a) * d, this.oy + Math.sin(a) * d, 28);
       }
     } else {
-      g.lineStyle(2, 0xffffff, 0.12).strokeCircle(170, H - 150, STICK_R);
+      g.lineStyle(2, 0xffffff, 0.12).strokeCircle(PORTRAIT ? 150 : 170, H - (PORTRAIT ? 190 : 150), STICK_R);
     }
     for (const b of this.btns) {
       const eq = p.loadout[b.slot];

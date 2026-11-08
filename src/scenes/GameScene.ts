@@ -11,7 +11,8 @@ import { Fx } from '../game/fx';
 import { Player } from '../game/Player';
 import { Effect, SKILLS, updatePlayerSkills } from '../game/skills';
 import { Hud } from '../ui/Hud';
-import { sfx, toggleMute, unlockAudio } from '../sfx';
+import { setMusicMood, sfx, toggleMute, unlockAudio } from '../sfx';
+import { saveSettings, settings } from '../settings';
 
 interface PBullet {
   img: Phaser.GameObjects.Image;
@@ -193,6 +194,8 @@ export class GameScene extends Phaser.Scene {
     this.time.timeScale = SPEED;
     this.tweens.timeScale = SPEED;
     this.time.delayedCall(600, () => this.startWave(1));
+    setMusicMood('battle');
+    if (!settings.tutorialDone && !BOT) this.time.delayedCall(1800, () => this.hud.tutorial(TOUCH));
   }
 
   private drawArena() {
@@ -220,6 +223,11 @@ export class GameScene extends Phaser.Scene {
     }
     this.spawnQueue.sort((a, b) => a.at - b.at);
     const boss = WAVES[n - 1].find((g) => isBossType(g.type));
+    setMusicMood(boss ? 'boss' : 'battle');
+    if (n === 2 && !settings.tutorialDone) {
+      settings.tutorialDone = true;
+      saveSettings();
+    }
     if (boss) this.hud.banner(`${n === TOTAL_WAVES ? '最终首领' : '首领'} · ${ENEMIES[boss.type].name}`, '#ff5577');
     else this.hud.banner(`第 ${n} 波`, '#ffffff');
   }
@@ -340,7 +348,7 @@ export class GameScene extends Phaser.Scene {
       this.player.hide();
     }
     this.time.delayedCall(win ? 600 : 1200, () => {
-      this.scene.start('End', { win, hero: this.heroId, wave: this.wave, run: this.run, mods: this.player.mods, loadout: this.player.loadout });
+      this.scene.start('End', { win, hero: this.heroId, wave: this.wave, run: this.run, mods: this.player.mods, loadout: this.player.loadout, by: this.lastHitBy });
     });
   }
 
@@ -505,6 +513,7 @@ export class GameScene extends Phaser.Scene {
     if (e === this.boss) {
       this.boss = null;
       this.bossDefeated = true;
+      setMusicMood('battle');
       if (this.wave < TOTAL_WAVES) {
         this.bonusPick = true;
         this.hud.banner(`击败 ${e.def.name}！额外强化 +1`, '#ffd34a');
@@ -619,7 +628,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   shake(ms: number, intensity: number) {
-    this.cameras.main.shake(ms, intensity);
+    if (settings.shake) this.cameras.main.shake(ms, intensity);
   }
 
   /** Where the cursor (or the bot's target) is, for targeted abilities. */

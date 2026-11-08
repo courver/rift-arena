@@ -1,8 +1,8 @@
 import Phaser from 'phaser';
-import { BOT, FONT, H, TOUCH, W, hex } from '../config';
+import { BOT, FONT, H, PORTRAIT, TOUCH, W, hex } from '../config';
 import { HEROES, HeroDef, Slot } from '../data/heroes';
 import { defOf } from '../game/cards';
-import { sfx, unlockAudio } from '../sfx';
+import { setMusicMood, sfx, unlockAudio } from '../sfx';
 import { textStyle } from '../ui/widgets';
 
 export class MenuScene extends Phaser.Scene {
@@ -14,6 +14,8 @@ export class MenuScene extends Phaser.Scene {
 
   create() {
     this.picked = false;
+    setMusicMood('menu');
+    this.input.once('pointerdown', () => unlockAudio());
     this.add.rectangle(W / 2, H / 2, W, H, 0x0b0d16);
     // drifting background sparks
     this.add.particles(0, 0, 'dot', {
@@ -26,14 +28,27 @@ export class MenuScene extends Phaser.Scene {
     this.add.text(W / 2, 150, 'RIFT ARENA · 英雄肉鸽竞技场', textStyle(18, '#a9a3ff')).setOrigin(0.5);
     this.add.text(W / 2, 186, '选择你的英雄，撑过 10 波，击败裂隙之主', textStyle(16, '#c8cde0')).setOrigin(0.5);
 
-    this.heroCard(W / 2 - 250, 390, HEROES.lumen);
-    this.heroCard(W / 2 + 250, 390, HEROES.kael);
+    if (PORTRAIT) {
+      this.heroCard(W / 2, 420, HEROES.lumen);
+      this.heroCard(W / 2, 760, HEROES.kael);
+    } else {
+      this.heroCard(W / 2 - 250, 390, HEROES.lumen);
+      this.heroCard(W / 2 + 250, 390, HEROES.kael);
+    }
 
-    this.add.text(W / 2, H - 70, TOUCH
+    this.add.text(W / 2, H - (PORTRAIT ? 110 : 70), TOUCH
       ? '左半屏拖动移动　自动瞄准、自动开火　右下按钮放 Q / E / R 技能'
-      : 'WASD 移动　鼠标瞄准（主武器自动开火，F 切换）　Q / 空格 / 右键 位移　E 技能　R 大招', textStyle(15, '#c8cde0')).setOrigin(0.5);
-    this.add.text(W / 2, H - 40, '6 种武器 · 11 种技能：每波结束可升级或更换 · 8 种敌人 · 精英带随机词缀 · 第 10 波 Boss', textStyle(13, '#8890a8')).setOrigin(0.5);
+      : 'WASD 移动　鼠标瞄准（主武器自动开火，F 切换）　Q / 空格 / 右键 位移　E 技能　R 大招',
+      { ...textStyle(15, '#c8cde0'), align: 'center', wordWrap: { width: W - 60, useAdvancedWrap: true } }).setOrigin(0.5);
+    this.add.text(W / 2, H - 36, '6 种武器 · 11 种技能 · 每波升级或更换 · 8 种敌人 · 3 个首领',
+      { ...textStyle(13, '#8890a8'), align: 'center', wordWrap: { width: W - 60, useAdvancedWrap: true } }).setOrigin(0.5);
     this.add.text(W - 12, H - 12, 'Made with Claude Code', { fontFamily: FONT, fontSize: '11px', color: '#555c78' }).setOrigin(1, 1);
+    // entry to the balance lab (bot simulations + charts)
+    const lab = this.add.text(12, H - 12, '⚙ 平衡实验室', { fontFamily: FONT, fontSize: '14px', color: '#8890a8' }).setOrigin(0, 1)
+      .setInteractive({ useHandCursor: true });
+    lab.on('pointerover', () => lab.setColor('#c8cde0'));
+    lab.on('pointerout', () => lab.setColor('#8890a8'));
+    lab.on('pointerup', () => { location.search = '?lab'; });
 
     this.input.keyboard?.on('keydown-ONE', () => this.pick('lumen'));
     this.input.keyboard?.on('keydown-TWO', () => this.pick('kael'));
@@ -46,10 +61,10 @@ export class MenuScene extends Phaser.Scene {
     unlockAudio();
     sfx('pick');
     if (TOUCH && !this.scale.isFullscreen) {
-      // best effort: fullscreen + landscape lock (Android); iOS ignores it and the page still fits
+      // best effort: fullscreen + lock the current orientation (Android); iOS ignores it and the page still fits
       try { this.scale.startFullscreen(); } catch { /* ignore */ }
       const o = screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> };
-      o?.lock?.('landscape').catch(() => {});
+      o?.lock?.(PORTRAIT ? 'portrait' : 'landscape').catch(() => {});
     }
     this.cameras.main.fadeOut(250, 11, 13, 22);
     this.cameras.main.once('camerafadeoutcomplete', () => this.scene.start('Game', { hero: id }));

@@ -6,24 +6,47 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="theme-color" content="#0b0d16" />
+    <meta name="description" content="裂隙竞技场：浏览器里的英雄肉鸽竞技场，电脑和手机都能玩。" />
     <title>裂隙竞技场 Rift Arena</title>
     <style>
       html, body { margin: 0; height: 100%; background: #0b0d16; overflow: hidden; }
       body { touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; overscroll-behavior: none; }
       #game { width: 100%; height: 100%; }
       canvas { display: block; }
-      #rotate {
-        display: none; position: fixed; inset: 0; z-index: 10; background: #0b0d16; color: #dfe3f0;
-        font: 18px "Microsoft YaHei", "PingFang SC", sans-serif; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+      .overlay {
+        position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
+        color: #dfe3f0; font: 16px "Microsoft YaHei", "PingFang SC", sans-serif; text-align: center; padding: 24px; box-sizing: border-box;
       }
-      #rotate .icon { font-size: 56px; animation: spin 1.6s ease-in-out infinite; }
-      @keyframes spin { 0%, 20% { transform: rotate(0deg); } 60%, 100% { transform: rotate(90deg); } }
-      @media (orientation: portrait) and (pointer: coarse) { #rotate { display: flex; } }
+      #loading .title { font-size: 28px; font-weight: bold; color: #fff; text-shadow: 0 0 16px #6a4cff; }
+      #loading .bar { width: 200px; height: 4px; background: #1c2238; border-radius: 2px; overflow: hidden; }
+      #loading .bar i { display: block; width: 40%; height: 100%; background: #6a4cff; animation: slide 1.2s ease-in-out infinite; }
+      @keyframes slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(250%); } }
+      #error { display: none; background: #0b0d16; z-index: 20; }
+      #error pre { white-space: pre-wrap; color: #ff8899; font-size: 12px; max-width: 90vw; }
     </style>
   </head>
   <body>
     <div id="game"></div>
-    <div id="rotate"><div class="icon">📱</div><div>请把手机横过来玩</div></div>
+    <div id="loading" class="overlay">
+      <div class="title">裂隙竞技场</div>
+      <div class="bar"><i></i></div>
+      <div>加载中…（约 400 KB）</div>
+    </div>
+    <div id="error" class="overlay">
+      <div>游戏启动失败 😢</div>
+      <div>可以换系统浏览器（Chrome / Safari）打开，或把下面的信息截图发给作者</div>
+      <pre id="error-msg"></pre>
+    </div>
+    <script>
+      // shown instead of a silent black screen if something breaks while booting
+      window.__bootErrors = [];
+      window.addEventListener('error', function (e) {
+        if (window.__booted) return;
+        window.__bootErrors.push(String(e.message || e));
+        document.getElementById('error-msg').textContent = window.__bootErrors.join('\n') + '\n\n' + navigator.userAgent;
+        document.getElementById('error').style.display = 'flex';
+      });
+    </script>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

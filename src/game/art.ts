@@ -5,6 +5,20 @@ import Phaser from 'phaser';
  * and displayed at 1/3 scale so it stays crisp when the game is scaled up.
  * Everything faces right; sprites flip to face left.
  */
+// roundRect is missing on older mobile browsers (iOS < 16, older Android WebViews / in-app browsers);
+// without it the art step throws and the game never leaves the black boot screen.
+if (!CanvasRenderingContext2D.prototype.roundRect) {
+  CanvasRenderingContext2D.prototype.roundRect = function (this: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r?: number | DOMPointInit | (number | DOMPointInit)[]) {
+    const rr = Math.min(typeof r === 'number' ? r : 0, w / 2, h / 2);
+    this.moveTo(x + rr, y);
+    this.arcTo(x + w, y, x + w, y + h, rr);
+    this.arcTo(x + w, y + h, x, y + h, rr);
+    this.arcTo(x, y + h, x, y, rr);
+    this.arcTo(x, y, x + w, y, rr);
+    this.closePath();
+  };
+}
+
 const RES = 3;
 export const ART_SCALE = 1 / RES;
 

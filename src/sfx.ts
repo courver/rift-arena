@@ -5,24 +5,36 @@ export type SfxName =
   | 'boom' | 'rage' | 'pick' | 'spawn' | 'heal' | 'deny' | 'win' | 'lose' | 'ebullet'
   | 'zap' | 'flame' | 'block';
 
+import { settings, saveSettings } from './settings';
+
 let ctx: AudioContext | null = null;
 let master: GainNode | null = null;
+let musicBus: GainNode | null = null;
 let noiseBuf: AudioBuffer | null = null;
-let muted = load();
 const last: Partial<Record<SfxName, number>> = {};
 
-function load() {
-  try { return localStorage.getItem('rift-muted') === '1'; } catch { return false; }
-}
-
 export function isMuted() {
-  return muted;
+  return !settings.sound;
 }
 
+/** M key / settings: all sound on or off. */
 export function toggleMute() {
-  muted = !muted;
-  try { localStorage.setItem('rift-muted', muted ? '1' : '0'); } catch { /* ignore */ }
-  return muted;
+  settings.sound = !settings.sound;
+  saveSettings();
+  applyVolumes();
+  return !settings.sound;
+}
+
+export function setMusic(on: boolean) {
+  settings.music = on;
+  saveSettings();
+  applyVolumes();
+}
+
+function applyVolumes() {
+  if (!ctx || !master || !musicBus) return;
+  master.gain.setTargetAtTime(settings.sound ? 0.22 : 0, ctx.currentTime, 0.05);
+  musicBus.gain.setTargetAtTime(settings.music ? 0.55 : 0, ctx.currentTime, 0.2);
 }
 
 /** Browsers only allow audio after a user gesture; call from an input handler. */
@@ -34,6 +46,11 @@ export function unlockAudio() {
     master = ctx.createGain();
     master.gain.value = 0.22;
     master.connect(ctx.destination);
+    musicBus = ctx.createGain();
+    musicBus.gain.value = 0;
+    musicBus.connect(master);
+    applyVolumes();
+    window.setInterval(scheduleMusic, 50);
     noiseBuf = ctx.createBuffer(1, ctx.sampleRate * 0.5, ctx.sampleRate);
     const d = noiseBuf.getChannelData(0);
     for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
@@ -73,7 +90,7 @@ function noise(dur: number, vol: number, freq: number, delay = 0) {
 }
 
 export function sfx(name: SfxName) {
-  if (!ctx || muted) return;
+  if (!ctx || !settings.sound) return;
   const now = performance.now();
   if (now - (last[name] ?? 0) < 40) return; // throttle spammy sounds
   last[name] = now;
@@ -98,5 +115,84 @@ export function sfx(name: SfxName) {
     case 'block': tone(1200, 0.05, 'square', 0.08, 900); break;
     case 'win': [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.3, 'triangle', 0.2, undefined, i * 0.12)); break;
     case 'lose': [392, 330, 262, 196].forEach((f, i) => tone(f, 0.35, 'sawtooth', 0.12, undefined, i * 0.15)); break;
+  }
+}
+
+// ------------------------------------------------------------------ music
+// A tiny step sequencer: bass + arpeggio over a four-chord loop, with drums in combat
+// and a faster, darker variation for boss fights. Scheduled slightly ahead of time.
+
+export type MusicMood = 'menu' | 'battle' | 'boss';
+let mood: MusicMood = 'menu';
+let step = 0;
+let nextTime = 0;
+
+export function setMusicMood(m: MusicMood) {
+  mood = m;
+}
+
+const CHORDS: Record<MusicMood, number[][]> = {
+  menu: [[57, 60, 64], [53, 57, 60], [48, 52, 55], [55, 59, 62]],
+  battle: [[57, 60, 64], [53, 57, 60], [55, 59, 62], [52, 55, 59]],
+  boss: [[52, 55, 59], [52, 55, 58], [48, 52, 55], [50, 53, 57]],
+};
+const BPM: Record<MusicMood, number> = { menu: 84, battle: 118, boss: 138 };
+
+function musicNote(midi: number, t: number, dur: number, type: OscillatorType, vol: number) {
+  if (!ctx || !musicBus) return;
+  const o = ctx.createOscillator();
+  const g = ctx.createGain();
+  o.type = type;
+  o.frequency.value = 440 * Math.pow(2, (midi - 69) / 12);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(vol, t + 0.01);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g).connect(musicBus);
+  o.start(t);
+  o.stop(t + dur + 0.02);
+}
+
+function musicDrum(t: number, kick: boolean) {
+  if (!ctx || !musicBus || !noiseBuf) return;
+  if (kick) {
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.frequency.setValueAtTime(120, t);
+    o.frequency.exponentialRampToValueAtTime(40, t + 0.12);
+    g.gain.setValueAtTime(0.35, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.15);
+    o.connect(g).connect(musicBus);
+    o.start(t);
+    o.stop(t + 0.17);
+  } else {
+    const s = ctx.createBufferSource();
+    s.buffer = noiseBuf;
+    const f = ctx.createBiquadFilter();
+    f.type = 'highpass';
+    f.frequency.value = 7000;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.05, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.04);
+    s.connect(f).connect(g).connect(musicBus);
+    s.start(t);
+    s.stop(t + 0.05);
+  }
+}
+
+function scheduleMusic() {
+  if (!ctx || !settings.music || ctx.state !== 'running') return;
+  if (nextTime < ctx.currentTime) nextTime = ctx.currentTime + 0.05;
+  while (nextTime < ctx.currentTime + 0.2) {
+    const stepDur = 60 / BPM[mood] / 2; // eighth notes
+    const chord = CHORDS[mood][Math.floor(step / 8) % 4];
+    if (step % 4 === 0) musicNote(chord[0] - 12, nextTime, stepDur * 3.5, 'triangle', 0.16);
+    const arp = mood === 'menu' ? [0, 1, 2, 1] : [0, 1, 2, 1, 2, 0, 1, 2];
+    musicNote(chord[arp[step % arp.length]] + 12, nextTime, stepDur * 0.9, mood === 'menu' ? 'sine' : 'square', mood === 'menu' ? 0.05 : 0.025);
+    if (mood !== 'menu') {
+      if (step % 4 === 0 || (mood === 'boss' && step % 4 === 2)) musicDrum(nextTime, true);
+      if (step % 2 === 1) musicDrum(nextTime, false);
+    }
+    nextTime += stepDur;
+    step++;
   }
 }

@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
-import { H, SIM, W } from './config';
+import { H, LAB, SIM, W } from './config';
+import { startLab } from './lab';
 import { BootScene } from './scenes/BootScene';
 import { EndScene } from './scenes/EndScene';
 import { GameScene } from './scenes/GameScene';
@@ -30,7 +31,9 @@ if (SIM) {
     game.loop.resume = () => {};
     game.loop.wake = () => {};
     let t = performance.now();
+    const w = window as unknown as { __simPaused?: boolean };
     setInterval(() => {
+      if (w.__simPaused) return;
       const until = performance.now() + 40;
       while (performance.now() < until) {
         t += 1000 / 60;
@@ -39,3 +42,5 @@ if (SIM) {
     }, 0);
   });
 }
+
+if (LAB) startLab();

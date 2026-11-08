@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { BOT, H, RARITY_COLOR, RARITY_NAME, SPEED, TOTAL_WAVES, W, hex } from '../config';
+import { BOT, H, PORTRAIT, RARITY_COLOR, RARITY_NAME, SPEED, TOTAL_WAVES, W, hex } from '../config';
 import { Card, describe } from '../game/cards';
 import type { Player } from '../game/Player';
 import { sfx } from '../sfx';
@@ -32,7 +32,8 @@ export class UpgradeScene extends Phaser.Scene {
     this.add.rectangle(W / 2, H / 2, W, H, 0x05060c, 0.72);
     this.add.text(W / 2, 100, data.bonus ? `首领击破 · 额外强化` : `第 ${data.wave} 波完成`, textStyle(36, data.bonus ? '#ffd34a' : '#7bff9e', true)).setOrigin(0.5);
     this.add.text(W / 2, 146, `选择一项强化（已回复 20% 生命）· 下一波：${data.wave + 1} / ${TOTAL_WAVES}`, textStyle(16, '#c8cde0')).setOrigin(0.5);
-    this.add.text(W / 2, 172, '蓝色 = 升级当前武器 / 技能　紫色 = 更换（保留等级 -1）　灰色 = 属性', textStyle(13, '#8890a8')).setOrigin(0.5);
+    this.add.text(W / 2, 172, '蓝色 = 升级当前武器 / 技能　紫色 = 更换（保留等级 -1）　灰色 = 属性',
+      { ...textStyle(13, '#8890a8'), align: 'center', wordWrap: { width: W - 60, useAdvancedWrap: true } }).setOrigin(0.5, 0);
     this.showCards(data.cards);
     this.makeRerollButton();
 
@@ -58,12 +59,12 @@ export class UpgradeScene extends Phaser.Scene {
   private showCards(cards: Card[]) {
     this.cards.forEach((c) => c.destroy());
     this.cards = [];
-    const cw = 300;
-    const ch = 270;
+    const cw = PORTRAIT ? 560 : 300;
+    const ch = PORTRAIT ? 250 : 270;
     cards.forEach((card, i) => {
       const v = describe(card, this.data_.player);
-      const x = W / 2 + (i - (cards.length - 1) / 2) * (cw + 36);
-      const y = H / 2 + 30;
+      const x = PORTRAIT ? W / 2 : W / 2 + (i - (cards.length - 1) / 2) * (cw + 36);
+      const y = PORTRAIT ? 360 + i * 275 : H / 2 + 30;
       const col = RARITY_COLOR[v.rarity];
       const bg = this.add.rectangle(0, 0, cw, ch, 0x151a2c, 0.97).setStrokeStyle(3, col);
       const band = this.add.rectangle(0, -ch / 2 + 18, cw, 36, col, 0.25);

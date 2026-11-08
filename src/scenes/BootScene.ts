@@ -82,6 +82,8 @@ export class BootScene extends Phaser.Scene {
     make('ring', 128, 128, () => g.lineStyle(6, 0xffffff).strokeCircle(64, 64, 60));
     g.destroy();
     buildArt(this);
+    document.getElementById('loading')?.remove();
+    (window as unknown as { __booted: boolean }).__booted = true;
 
     this.scene.start('Menu');
   }
