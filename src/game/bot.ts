@@ -1,0 +1,86 @@
+import type { GameScene } from '../scenes/GameScene';
+import { ARENA } from '../config';
+import type { Enemy } from './Enemy';
+
+/**
+ * Autoplay used for balance testing (?bot). Steers with simple potential fields:
+ * pushed away from enemies and bullets, pulled toward a preferred distance from the target.
+ */
+export class Bot {
+  move: { x: number; y: number } | null = null;
+  aim = 0;
+  fire = false;
+  target: Enemy | null = null;
+  private castCd = 0;
+
+  update(s: GameScene, dt: number) {
+    const p = s.player;
+    const melee = p.hero.id === 'kael';
+    this.castCd -= dt;
+    let target: Enemy | null = null;
+    let best = Infinity;
+    for (const e of s.enemies) {
+      const d = Math.hypot(e.x - p.x, e.y - p.y);
+      if (d < best) { best = d; target = e; }
+    }
+    this.target = target;
+    this.fire = !!target;
+    let fx = 0;
+    let fy = 0;
+    if (target) {
+      this.aim = Math.atan2(target.y - p.y, target.x - p.x);
+      const d = Math.hypot(target.x - p.x, target.y - p.y);
+      const want = melee ? (p.whirlT > 0 || p.rageT > 0 ? 20 : 70) + target.r : 260;
+      const pull = (d - want) / 100;
+      fx += Math.cos(this.aim) * pull;
+      fy += Math.sin(this.aim) * pull;
+    }
+    for (const e of s.enemies) {
+      const dx = p.x - e.x;
+      const dy = p.y - e.y;
+      const d = Math.max(1, Math.hypot(dx, dy) - e.r);
+      const reach = melee ? 60 : 170;
+      if (d < reach) {
+        const w = (reach - d) / reach * (e.state === 'charge' || e.state === 'windup' ? 4 : 1.5);
+        fx += (dx / d) * w;
+        fy += (dy / d) * w;
+      }
+    }
+    for (const b of s.eBullets) {
+      const dx = p.x - b.x;
+      const dy = p.y - b.y;
+      const d = Math.max(1, Math.hypot(dx, dy));
+      if (d > 140) continue;
+      // only dodge bullets heading our way, sideways to their path
+      if (dx * b.vx + dy * b.vy <= 0) continue;
+      const side = Math.sign(dx * -b.vy + dy * b.vx) || 1;
+      const sp = Math.hypot(b.vx, b.vy);
+      const w = (140 - d) / 140 * 3;
+      fx += (-b.vy / sp) * side * w;
+      fy += (b.vx / sp) * side * w;
+    }
+    // keep off the walls
+    const cx = ARENA.x + ARENA.w / 2;
+    const cy = ARENA.y + ARENA.h / 2;
+    const edge = 90;
+    if (p.x < ARENA.x + edge || p.x > ARENA.x + ARENA.w - edge) fx += Math.sign(cx - p.x) * 1.5;
+    if (p.y < ARENA.y + edge || p.y > ARENA.y + ARENA.h - edge) fy += Math.sign(cy - p.y) * 1.5;
+
+    const l = Math.hypot(fx, fy);
+    this.move = l > 0.15 ? { x: fx / l, y: fy / l } : null;
+
+    if (!target || this.castCd > 0) return;
+    const near = (r: number) => s.enemiesInRadius(p.x, p.y, r).length;
+    const danger = near(70) >= 2 || p.hp < p.stats.maxHp * 0.35 || s.eBullets.some((b) => Math.hypot(b.x - p.x, b.y - p.y) < 40);
+    const cast = (k: 'Q' | 'E' | 'R') => { if (p.cd[k] <= 0) { s.tryCast(k); this.castCd = 0.3; } };
+    if (melee) {
+      if (best > 140 && best < 300) this.aim = Math.atan2(target.y - p.y, target.x - p.x), cast('Q');
+      if (near(120) >= 3 || target.type === 'boss' && best < 150) cast('E');
+      if (near(170) >= 5 || s.boss || target.type === 'elite') cast('R');
+    } else {
+      if (danger) cast('Q');
+      if (near(150) >= 2) cast('E');
+      if (s.enemiesInRadius(target.x, target.y, 160).length >= 5 || target.type === 'boss' || target.type === 'elite') cast('R');
+    }
+  }
+}
