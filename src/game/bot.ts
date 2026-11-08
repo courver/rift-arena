@@ -1,6 +1,7 @@
 import type { GameScene } from '../scenes/GameScene';
 import { ARENA } from '../config';
 import type { Enemy } from './Enemy';
+import { SKILLS } from './skills';
 
 /**
  * Autoplay used for balance testing (?bot). Steers with simple potential fields:
@@ -15,7 +16,8 @@ export class Bot {
 
   update(s: GameScene, dt: number) {
     const p = s.player;
-    const melee = p.hero.id === 'kael';
+    const range = p.weapon.range;
+    const melee = range < 100;
     this.castCd -= dt;
     let target: Enemy | null = null;
     let best = Infinity;
@@ -30,7 +32,7 @@ export class Bot {
     if (target) {
       this.aim = Math.atan2(target.y - p.y, target.x - p.x);
       const d = Math.hypot(target.x - p.x, target.y - p.y);
-      const want = melee ? (p.whirlT > 0 || p.rageT > 0 ? 20 : 70) + target.r : 260;
+      const want = melee ? (p.whirlT > 0 || p.rageT > 0 ? 20 : range) + target.r : range;
       const pull = (d - want) / 100;
       fx += Math.cos(this.aim) * pull;
       fy += Math.sin(this.aim) * pull;
@@ -39,7 +41,7 @@ export class Bot {
       const dx = p.x - e.x;
       const dy = p.y - e.y;
       const d = Math.max(1, Math.hypot(dx, dy) - e.r);
-      const reach = melee ? 60 : 170;
+      const reach = melee ? 60 : Math.min(170, range * 0.7);
       if (d < reach) {
         const w = (reach - d) / reach * (e.state === 'charge' || e.state === 'windup' ? 4 : 1.5);
         fx += (dx / d) * w;
@@ -72,15 +74,23 @@ export class Bot {
     if (!target || this.castCd > 0) return;
     const near = (r: number) => s.enemiesInRadius(p.x, p.y, r).length;
     const danger = near(70) >= 2 || p.hp < p.stats.maxHp * 0.35 || s.eBullets.some((b) => Math.hypot(b.x - p.x, b.y - p.y) < 40);
-    const cast = (k: 'Q' | 'E' | 'R') => { if (p.cd[k] <= 0) { s.tryCast(k); this.castCd = 0.3; } };
-    if (melee) {
-      if (best > 140 && best < 300) this.aim = Math.atan2(target.y - p.y, target.x - p.x), cast('Q');
-      if (near(120) >= 3 || target.type === 'boss' && best < 150) cast('E');
-      if (near(170) >= 5 || s.boss || target.type === 'elite') cast('R');
-    } else {
-      if (danger) cast('Q');
-      if (near(150) >= 2) cast('E');
-      if (s.enemiesInRadius(target.x, target.y, 160).length >= 5 || target.type === 'boss' || target.type === 'elite') cast('R');
+    const cluster = s.enemiesInRadius(target.x, target.y, 180).length;
+    const bigFight = !!s.boss || target.type === 'elite';
+    for (const slot of ['Q', 'E', 'R'] as const) {
+      if (p.cd[slot] > 0) continue;
+      const use = SKILLS[p.loadout[slot].id].use;
+      const go =
+        use === 'escape' ? danger :
+        use === 'engage' ? best > 140 && best < 300 :
+        use === 'aoe' ? near(140) >= 3 || (bigFight && best < 150) :
+        use === 'zone' ? cluster >= 4 || bigFight :
+        use === 'summon' ? s.enemies.length >= 4 :
+        cluster >= 5 || bigFight;
+      if (go) {
+        s.tryCast(slot);
+        this.castCd = 0.3;
+        return;
+      }
     }
   }
 }

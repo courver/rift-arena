@@ -2,7 +2,8 @@
 
 export type SfxName =
   | 'shoot' | 'slash' | 'hit' | 'crit' | 'kill' | 'hurt' | 'blink' | 'nova'
-  | 'boom' | 'rage' | 'pick' | 'spawn' | 'heal' | 'deny' | 'win' | 'lose' | 'ebullet';
+  | 'boom' | 'rage' | 'pick' | 'spawn' | 'heal' | 'deny' | 'win' | 'lose' | 'ebullet'
+  | 'zap' | 'flame' | 'block';
 
 let ctx: AudioContext | null = null;
 let master: GainNode | null = null;
@@ -92,6 +93,9 @@ export function sfx(name: SfxName) {
     case 'heal': tone(700, 0.15, 'sine', 0.15, 1100); break;
     case 'deny': tone(140, 0.08, 'square', 0.08); break;
     case 'ebullet': tone(500, 0.06, 'sine', 0.05, 300); break;
+    case 'zap': noise(0.12, 0.35, 8000); tone(1800, 0.1, 'sawtooth', 0.08, 400); break;
+    case 'flame': noise(0.08, 0.08, 1500); break;
+    case 'block': tone(1200, 0.05, 'square', 0.08, 900); break;
     case 'win': [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.3, 'triangle', 0.2, undefined, i * 0.12)); break;
     case 'lose': [392, 330, 262, 196].forEach((f, i) => tone(f, 0.35, 'sawtooth', 0.12, undefined, i * 0.15)); break;
   }

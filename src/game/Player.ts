@@ -1,6 +1,8 @@
 import Phaser from 'phaser';
-import type { AbilityKey, HeroDef } from '../data/heroes';
+import type { Equip, HeroDef, SkillSlot, Slot } from '../data/heroes';
 import type { Enemy } from './Enemy';
+import { SKILLS } from './skills';
+import { WEAPONS } from './weapons';
 
 export interface Stats {
   maxHp: number;
@@ -27,22 +29,28 @@ export class Player {
   readonly r = 16;
   hero: HeroDef;
   stats: Stats;
-  /** upgrade stack counts by id */
+  /** stat upgrade stack counts by id */
   mods: Record<string, number> = {};
+  loadout: Record<Slot, Equip>;
   hp: number;
-  cd: Record<Exclude<AbilityKey, 'LMB'>, number> = { Q: 0, E: 0, R: 0 };
+  cd: Record<SkillSlot, number> = { Q: 0, E: 0, R: 0 };
   atkTimer = 0;
   iframes = 0;
   aimAngle = 0;
+  /** swing / shot counter for weapons with every-Nth-attack effects */
+  shots = 0;
 
   dashT = 0;
   dashVx = 0;
   dashVy = 0;
+  dashDmg = 0;
+  dashRefund = false;
   dashHit = new Set<Enemy>();
   whirlT = 0;
   whirlTick = 0;
+  whirlLv = 1;
   rageT = 0;
-  slashCount = 0;
+  rageArmor = false;
 
   constructor(scene: Phaser.Scene, hero: HeroDef, x: number, y: number) {
     this.hero = hero;
@@ -61,6 +69,12 @@ export class Player {
       armor: 0,
       regen: 0,
     };
+    this.loadout = {
+      weapon: { id: hero.loadout.weapon, lv: 1 },
+      Q: { id: hero.loadout.Q, lv: 1 },
+      E: { id: hero.loadout.E, lv: 1 },
+      R: { id: hero.loadout.R, lv: 1 },
+    };
     this.hp = hero.hp;
     this.aura = scene.add.circle(x, y, 30, 0xff3020, 0.25).setVisible(false).setDepth(9);
     this.sprite = scene.add.image(x, y, 'hero_' + hero.id).setDepth(10);
@@ -70,17 +84,27 @@ export class Player {
     return this.mods[id] ?? 0;
   }
 
+  get weapon() {
+    return WEAPONS[this.loadout.weapon.id];
+  }
+
   get atkRate() {
-    return this.hero.atkRate * this.stats.atkRateMult * (this.rageT > 0 ? 1.6 : 1);
+    const w = this.loadout.weapon;
+    return WEAPONS[w.id].rate(w.lv) * this.stats.atkRateMult * (this.rageT > 0 ? 1.5 : 1);
   }
 
   get speed() {
     return this.stats.moveSpeed * (this.rageT > 0 ? 1.2 : 1);
   }
 
-  cdOf(key: Exclude<AbilityKey, 'LMB'>) {
-    const def = this.hero.abilities.find((a) => a.key === key)!;
-    return def.cd * (1 - Math.min(0.5, this.stats.cdr));
+  /** Kael's passive kicks in at low health. */
+  get desperate() {
+    return this.hero.id === 'kael' && this.hp < this.stats.maxHp * 0.35;
+  }
+
+  cdOf(slot: SkillSlot) {
+    const e = this.loadout[slot];
+    return SKILLS[e.id].cd(e.lv) * (1 - Math.min(0.5, this.stats.cdr));
   }
 
   heal(n: number) {

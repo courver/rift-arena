@@ -77,6 +77,36 @@ export class BootScene extends Phaser.Scene {
       g.fillStyle(0x200008).fillCircle(73, 60, 5);
     });
 
+    make('mini', 20, 20, () => {
+      g.fillStyle(e.mini.color).fillCircle(10, 11, 9);
+      g.fillStyle(0x0b0d16).fillCircle(7, 11, 1.8).fillCircle(13, 11, 1.8);
+    });
+    make('bomber', 30, 30, () => {
+      const pts: Phaser.Math.Vector2[] = [];
+      for (let i = 0; i < 16; i++) {
+        const a = (i / 16) * Math.PI * 2;
+        const rr = i % 2 ? 9 : 14;
+        pts.push(new Phaser.Math.Vector2(15 + Math.cos(a) * rr, 15 + Math.sin(a) * rr));
+      }
+      g.fillStyle(e.bomber.color).fillPoints(pts, true);
+      g.fillStyle(0xffe070).fillCircle(15, 15, 5);
+    });
+    make('shielder', 44, 44, () => {
+      g.fillStyle(0x23324d).fillRoundedRect(4, 4, 36, 36, 6);
+      g.fillStyle(e.shielder.color).fillRoundedRect(8, 8, 28, 28, 5);
+      g.fillStyle(0x0b0d16).fillRect(24, 16, 8, 4).fillRect(24, 24, 8, 4);
+    });
+    // shield arc in front (+x), drawn as its own sprite so it can turn independently
+    make('shield', 70, 70, () => {
+      g.lineStyle(7, 0xbfe0ff, 1).beginPath().arc(35, 35, 30, -1.13, 1.13).strokePath();
+      g.lineStyle(2, 0xffffff, 1).beginPath().arc(35, 35, 33, -1.0, 1.0).strokePath();
+    });
+    make('priest', 30, 30, () => {
+      g.lineStyle(2, 0xffffff, 0.8).strokeCircle(15, 15, 14);
+      g.fillStyle(e.priest.color).fillCircle(15, 15, 11);
+      g.fillStyle(0xffffff).fillRect(13, 7, 4, 16).fillRect(8, 12, 14, 4);
+    });
+
     make('bolt', 22, 10, () => {
       g.fillStyle(HEROES.lumen.color, 0.4).fillEllipse(11, 5, 22, 10);
       g.fillStyle(0xffffff).fillEllipse(13, 5, 12, 5);
@@ -88,6 +118,41 @@ export class BootScene extends Phaser.Scene {
     make('ebullet', 16, 16, () => {
       g.fillStyle(0xff3355).fillCircle(8, 8, 7);
       g.fillStyle(0xffd0d8).fillCircle(8, 8, 3.5);
+    });
+    make('pellet', 10, 10, () => {
+      g.fillStyle(0xffc04a, 0.5).fillCircle(5, 5, 5);
+      g.fillStyle(0xffffff).fillCircle(5, 5, 2.5);
+    });
+    make('tbolt', 16, 8, () => {
+      g.fillStyle(0x7bff9e, 0.5).fillEllipse(8, 4, 16, 8);
+      g.fillStyle(0xffffff).fillEllipse(9, 4, 8, 3);
+    });
+    make('blade', 36, 36, () => {
+      for (let i = 0; i < 4; i++) {
+        const a = (i / 4) * Math.PI * 2;
+        g.fillStyle(0xd0ff6a).fillTriangle(
+          18 + Math.cos(a) * 17, 18 + Math.sin(a) * 17,
+          18 + Math.cos(a + 1.1) * 6, 18 + Math.sin(a + 1.1) * 6,
+          18 + Math.cos(a - 0.4) * 6, 18 + Math.sin(a - 0.4) * 6,
+        );
+      }
+      g.fillStyle(0xffffff).fillCircle(18, 18, 4);
+    });
+    make('flame', 24, 24, () => {
+      g.fillStyle(0xff4a1a, 0.35).fillCircle(12, 12, 12);
+      g.fillStyle(0xff9a3a, 0.7).fillCircle(12, 12, 7);
+      g.fillStyle(0xfff0a0).fillCircle(12, 12, 3);
+    });
+    make('turret', 36, 36, () => {
+      g.fillStyle(0x1d3a2a).fillCircle(18, 18, 14);
+      g.lineStyle(2, 0x7bff9e).strokeCircle(18, 18, 14);
+      g.fillStyle(0x7bff9e).fillRect(18, 15, 17, 6);
+      g.fillStyle(0xffffff).fillCircle(18, 18, 5);
+    });
+    make('decoy', 40, 40, () => {
+      g.fillStyle(0xffffff, 0.35).fillCircle(20, 20, 18);
+      g.lineStyle(3, 0xffffff).strokeCircle(20, 20, 15);
+      g.fillStyle(0xffffff).fillCircle(20, 20, 5);
     });
     make('dot', 8, 8, () => g.fillStyle(0xffffff).fillCircle(4, 4, 4));
     make('heart', 20, 20, () => {

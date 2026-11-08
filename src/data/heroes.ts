@@ -1,13 +1,10 @@
 export type HeroId = 'lumen' | 'kael';
-export type AbilityKey = 'LMB' | 'Q' | 'E' | 'R';
+export type SkillSlot = 'Q' | 'E' | 'R';
+export type Slot = 'weapon' | SkillSlot;
 
-export interface AbilityDef {
-  key: AbilityKey;
-  name: string;
-  desc: string;
-  /** Base cooldown in ms (0 for the primary attack). */
-  cd: number;
-  icon: string;
+export interface Equip {
+  id: string;
+  lv: number;
 }
 
 export interface HeroDef {
@@ -19,9 +16,9 @@ export interface HeroDef {
   color: number;
   hp: number;
   speed: number;
-  /** Primary attacks per second. */
-  atkRate: number;
-  abilities: AbilityDef[];
+  /** Starting weapon and skills; all of them can be swapped by upgrade cards. */
+  loadout: Record<Slot, string>;
+  passive: { name: string; desc: string };
 }
 
 export const HEROES: Record<HeroId, HeroDef> = {
@@ -30,33 +27,23 @@ export const HEROES: Record<HeroId, HeroDef> = {
     name: '星弦',
     title: 'Lumen',
     role: '远程 · 控场',
-    desc: '用星弹风筝敌人，霜环减速，坠星清场。手短血薄，靠走位活下来。',
+    desc: '血薄手长，靠走位和控场活下来。',
     color: 0x5ee0ff,
     hp: 105,
     speed: 230,
-    atkRate: 3.2,
-    abilities: [
-      { key: 'LMB', name: '星弹', desc: '向鼠标方向射出星弹', cd: 0, icon: '✦' },
-      { key: 'Q', name: '相位闪', desc: '向移动方向瞬移，短暂无敌', cd: 4000, icon: '➤' },
-      { key: 'E', name: '霜环', desc: '冲击周围敌人并减速 50%', cd: 7000, icon: '❄' },
-      { key: 'R', name: '坠星', desc: '在鼠标处召下陨星，造成巨额范围伤害', cd: 26000, icon: '☄' },
-    ],
+    loadout: { weapon: 'bolt', Q: 'blink', E: 'frostNova', R: 'starfall' },
+    passive: { name: '星辉回响', desc: '主武器每次命中，Q / E 冷却 -0.1 秒' },
   },
   kael: {
     id: 'kael',
     name: '赤刃',
     title: 'Kael',
     role: '近战 · 斗士',
-    desc: '贴身挥砍、突进切入，开血怒后越打越猛。血厚，但要冲进人堆。',
+    desc: '血厚，贴身输出，越残越猛。',
     color: 0xff6a4a,
-    hp: 140,
+    hp: 155,
     speed: 215,
-    atkRate: 2.2,
-    abilities: [
-      { key: 'LMB', name: '斩击', desc: '向鼠标方向挥出扇形斩击', cd: 0, icon: '⚔' },
-      { key: 'Q', name: '突进斩', desc: '冲向鼠标方向，沿途造成伤害，短暂无敌', cd: 5000, icon: '➤' },
-      { key: 'E', name: '旋风', desc: '持续旋转 1.6 秒，伤害周围敌人', cd: 8000, icon: '◎' },
-      { key: 'R', name: '血怒', desc: '震退周围敌人，6 秒内攻速、吸血、移速大增', cd: 26000, icon: '♨' },
-    ],
+    loadout: { weapon: 'slash', Q: 'dashStrike', E: 'whirlwind', R: 'bloodrage' },
+    passive: { name: '不屈战意', desc: '生命低于 35% 时伤害 +40%、受伤 -15%' },
   },
 };

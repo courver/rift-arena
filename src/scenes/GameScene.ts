@@ -1,22 +1,37 @@
 import Phaser from 'phaser';
 import { ARENA, BOT, DEBUG, H, SPEED, TOTAL_WAVES, W } from '../config';
 import { Bot } from '../game/bot';
-import { ENEMIES, EnemyType } from '../data/enemies';
-import { HEROES, HeroId } from '../data/heroes';
-import { applyUpgrade, rollUpgrades, Upgrade } from '../data/upgrades';
+import { AFFIXES, Affix, ENEMIES, EnemyType } from '../data/enemies';
+import { HEROES, HeroId, SkillSlot } from '../data/heroes';
 import { WAVES } from '../data/waves';
-import { Enemy } from '../game/Enemy';
+import { applyCard, Card, cardLabel, rollCards } from '../game/cards';
+import { Enemy, SHIELD_ARC } from '../game/Enemy';
 import { Fx } from '../game/fx';
-import { cast, primary, updateKit } from '../game/kits';
 import { Player } from '../game/Player';
+import { Effect, SKILLS, updatePlayerSkills } from '../game/skills';
 import { Hud } from '../ui/Hud';
 import { sfx, toggleMute, unlockAudio } from '../sfx';
 
 interface PBullet {
   img: Phaser.GameObjects.Image;
   x: number; y: number; vx: number; vy: number;
-  dmg: number; r: number; pierce: number; life: number;
+  dmg: number; r: number; pierce: number; life: number; maxLife: number; age: number;
+  kb: number;
   hit: Set<Enemy>;
+  /** counts as a primary-weapon hit (Lumen's passive) */
+  primary: boolean;
+  quiet: boolean;
+  grow: boolean;
+  burn?: { dps: number; t: number };
+  /** seconds before a boomerang turns back; 0 = normal bullet */
+  boomerang: number;
+  returning: boolean;
+}
+
+export interface PBulletOpts {
+  x: number; y: number; angle: number; speed: number; dmg: number; pierce: number; tex: string; life: number;
+  r?: number; kb?: number; scale?: number; primary?: boolean; quiet?: boolean; grow?: boolean;
+  burn?: { dps: number; t: number }; boomerang?: number;
 }
 
 interface EBullet {
@@ -40,7 +55,18 @@ export interface DamageOpts {
   kb?: number;
   /** big hits get hitstop + shake */
   big?: boolean;
+  /** area damage ignores the shielder's frontal shield */
+  aoe?: boolean;
+  /** where the hit came from, for shield checks */
+  from?: { x: number; y: number };
+  primary?: boolean;
+  /** no number / sound (flamethrower ticks) */
+  quiet?: boolean;
+  /** damage over time: no crit, orange numbers */
+  dot?: boolean;
 }
+
+const AUTO_KEY = 'rift-autofire';
 
 export class GameScene extends Phaser.Scene {
   player!: Player;
@@ -49,6 +75,8 @@ export class GameScene extends Phaser.Scene {
   pBullets: PBullet[] = [];
   eBullets: EBullet[] = [];
   pickups: Pickup[] = [];
+  effects: Effect[] = [];
+  decoy: { x: number; y: number; r: number } | null = null;
   fx!: Fx;
   hud!: Hud;
   wave = 0;
@@ -57,6 +85,8 @@ export class GameScene extends Phaser.Scene {
   pendingSpawns = 0;
   waveClearT = -1;
   hitstop = 0;
+  timeStopT = 0;
+  timeStopBonus = false;
   over = false;
   intermission = false;
   boss: Enemy | null = null;
@@ -64,10 +94,15 @@ export class GameScene extends Phaser.Scene {
   run!: RunStats;
   rerolls = 1;
   godMode = false;
+  autoFire = true;
   bot: Bot | null = null;
   lastHitBy = '';
+  private toAdd: Enemy[] = [];
+  private seen = new Set<EnemyType>();
+  private echoT = 0;
   private bars!: Phaser.GameObjects.Graphics;
   private hurtOverlay!: Phaser.GameObjects.Rectangle;
+  private stopOverlay!: Phaser.GameObjects.Rectangle;
   private keys!: Record<string, Phaser.Input.Keyboard.Key>;
   private whirlImg: Phaser.GameObjects.Image | null = null;
 
@@ -82,11 +117,16 @@ export class GameScene extends Phaser.Scene {
     this.pBullets = [];
     this.eBullets = [];
     this.pickups = [];
+    this.effects = [];
+    this.decoy = null;
+    this.toAdd = [];
+    this.seen = new Set();
     this.wave = 0;
     this.spawnQueue = [];
     this.pendingSpawns = 0;
     this.waveClearT = -1;
     this.hitstop = 0;
+    this.timeStopT = 0;
     this.over = false;
     this.intermission = false;
     this.boss = null;
@@ -96,6 +136,7 @@ export class GameScene extends Phaser.Scene {
     this.whirlImg = null;
     this.bot = BOT ? new Bot() : null;
     this.run = { kills: 0, dmgDealt: 0, dmgTaken: 0, time: 0, picks: [] };
+    try { this.autoFire = localStorage.getItem(AUTO_KEY) !== '0'; } catch { this.autoFire = true; }
   }
 
   create() {
@@ -104,6 +145,7 @@ export class GameScene extends Phaser.Scene {
     this.player = new Player(this, HEROES[this.heroId], W / 2, H / 2);
     this.bars = this.add.graphics().setDepth(20);
     this.hurtOverlay = this.add.rectangle(W / 2, H / 2, W, H, 0xff0000, 0).setDepth(90);
+    this.stopOverlay = this.add.rectangle(W / 2, H / 2, W, H, 0x4060ff, 0).setDepth(2);
     this.hud = new Hud(this);
 
     const kb = this.input.keyboard!;
@@ -118,11 +160,16 @@ export class GameScene extends Phaser.Scene {
     kb.on('keydown-SHIFT', () => this.tryCast('Q'));
     kb.on('keydown-E', () => this.tryCast('E'));
     kb.on('keydown-R', () => this.tryCast('R'));
+    kb.on('keydown-F', () => {
+      this.autoFire = !this.autoFire;
+      try { localStorage.setItem(AUTO_KEY, this.autoFire ? '1' : '0'); } catch { /* ignore */ }
+      this.hud.setAutoFire(this.autoFire);
+    });
     kb.on('keydown-M', () => this.hud.setMuted(toggleMute()));
     kb.on('keydown-ESC', () => this.openPause());
     kb.on('keydown-P', () => this.openPause());
     if (DEBUG) {
-      kb.on('keydown-N', () => this.enemies.forEach((e) => this.damage(e, 99999, {})));
+      kb.on('keydown-N', () => this.enemies.forEach((e) => this.damage(e, 99999, { aoe: true })));
       kb.on('keydown-I', () => (this.godMode = !this.godMode));
     }
     (window as unknown as { __game: GameScene }).__game = this;
@@ -181,14 +228,19 @@ export class GameScene extends Phaser.Scene {
     this.time.delayedCall(ms, () => {
       this.pendingSpawns--;
       if (this.over || (this.bossDefeated && type !== 'boss')) return;
-      const e = new Enemy(this, type, sx, sy, this.wave);
+      const affix = type === 'elite' ? (Phaser.Utils.Array.GetRandom(Object.keys(AFFIXES)) as Affix) : null;
+      const e = new Enemy(this, type, sx, sy, this.wave, affix);
       this.enemies.push(e);
+      if (!this.seen.has(type)) {
+        this.seen.add(type);
+        if (ENEMIES[type].hint && type !== 'elite') this.hud.hint(ENEMIES[type].name, ENEMIES[type].hint, ENEMIES[type].color);
+      }
       if (type === 'boss') {
         this.boss = e;
         this.shake(400, 0.012);
         this.hud.showBoss(e);
       } else if (type === 'elite') {
-        this.fx.text(sx, sy - 30, '精英出现！', '#ff7be8');
+        this.hud.hint(`精英 · ${AFFIXES[affix!]}`, AFFIX_HINT[affix!], ENEMIES.elite.color);
       }
     });
   }
@@ -219,15 +271,17 @@ export class GameScene extends Phaser.Scene {
     this.scene.pause();
     this.scene.launch('Upgrade', {
       wave: this.wave,
-      choices: rollUpgrades(p),
+      player: p,
+      cards: rollCards(p),
       rerolls: this.rerolls,
       reroll: () => {
         this.rerolls--;
-        return rollUpgrades(p);
+        return rollCards(p);
       },
-      onPick: (u: Upgrade) => {
-        applyUpgrade(p, u);
-        this.run.picks.push(u.id);
+      onPick: (c: Card) => {
+        this.run.picks.push(cardLabel(c, p));
+        applyCard(c, p);
+        this.hud.refreshLoadout();
         this.intermission = false;
         this.scene.resume();
         this.startWave(this.wave + 1);
@@ -245,7 +299,13 @@ export class GameScene extends Phaser.Scene {
     if (this.over) return;
     this.over = true;
     sfx(win ? 'win' : 'lose');
-    const result = { hero: this.heroId, win, wave: this.wave, time: Math.round(this.run.time), hp: Math.round(this.player.hp), kills: this.run.kills, by: win ? '' : this.lastHitBy, taken: this.run.dmgTaken, picks: this.run.picks.join(',') };
+    const lo = this.player.loadout;
+    const result = {
+      hero: this.heroId, win, wave: this.wave, time: Math.round(this.run.time), hp: Math.round(this.player.hp), kills: this.run.kills,
+      by: win ? '' : this.lastHitBy, taken: this.run.dmgTaken,
+      loadout: `${lo.weapon.id}${lo.weapon.lv} ${lo.Q.id}${lo.Q.lv} ${lo.E.id}${lo.E.lv} ${lo.R.id}${lo.R.lv}`,
+      picks: this.run.picks.join(','),
+    };
     const w = window as unknown as { __runs?: object[] };
     (w.__runs ??= []).push(result);
     console.log('[run]', JSON.stringify(result));
@@ -254,17 +314,19 @@ export class GameScene extends Phaser.Scene {
       this.player.sprite.setVisible(false);
     }
     this.time.delayedCall(win ? 600 : 1200, () => {
-      this.scene.start('End', { win, hero: this.heroId, wave: this.wave, run: this.run, mods: this.player.mods });
+      this.scene.start('End', { win, hero: this.heroId, wave: this.wave, run: this.run, mods: this.player.mods, loadout: this.player.loadout });
     });
   }
 
-  // ---------------------------------------------------------------- spawning projectiles
+  // ---------------------------------------------------------------- spawning
 
-  spawnPBullet(x: number, y: number, angle: number, speed: number, dmg: number, pierce: number, tex: string, life: number) {
-    const img = this.add.image(x, y, tex).setRotation(angle).setDepth(7);
+  spawnPBullet(o: PBulletOpts) {
+    const img = this.add.image(o.x, o.y, o.tex).setRotation(o.angle).setDepth(7).setScale(o.scale ?? 1);
     this.pBullets.push({
-      img, x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
-      dmg, r: tex === 'wave' ? 22 : 7, pierce, life, hit: new Set(),
+      img, x: o.x, y: o.y, vx: Math.cos(o.angle) * o.speed, vy: Math.sin(o.angle) * o.speed,
+      dmg: o.dmg, r: o.r ?? 7, pierce: o.pierce, life: o.life, maxLife: o.life, age: 0, kb: o.kb ?? 90, hit: new Set(),
+      primary: o.primary ?? true, quiet: o.quiet ?? false, grow: o.grow ?? false, burn: o.burn,
+      boomerang: o.boomerang ?? 0, returning: false,
     });
   }
 
@@ -279,29 +341,70 @@ export class GameScene extends Phaser.Scene {
     this.whirlImg = this.add.image(p.x, p.y, 'ring').setTint(p.hero.color).setAlpha(0.7).setDepth(8).setScale((r * 2) / 128);
   }
 
+  addEffect(f: Effect) {
+    this.effects.push(f);
+  }
+
+  startTimeStop(dur: number, bonus: boolean) {
+    this.timeStopT = dur;
+    this.timeStopBonus = bonus;
+    this.stopOverlay.setAlpha(0.16);
+    this.fx.ring(this.player.x, this.player.y, 700, 0x8fa8ff, 600, 0.15);
+    this.hud.banner('时间凝滞', '#a8c0ff');
+  }
+
   // ---------------------------------------------------------------- combat
 
   enemiesInRadius(x: number, y: number, r: number) {
     return this.enemies.filter((e) => !e.dead && Math.hypot(e.x - x, e.y - y) <= r + e.r);
   }
 
+  /** Enemies chase the decoy while one exists. */
+  targetPos(): { x: number; y: number } {
+    return this.decoy ?? this.player;
+  }
+
+  /** True if a hit from (x, y) lands on a shielder's shield. */
+  shieldBlocks(e: Enemy, x: number, y: number) {
+    if (e.type !== 'shielder' || e.freezeT > 0) return false;
+    return Math.abs(Phaser.Math.Angle.Wrap(Math.atan2(y - e.y, x - e.x) - e.facing)) < SHIELD_ARC;
+  }
+
   /** Applies player damage modifiers. Returns true if the enemy died. */
   damage(e: Enemy, base: number, o: DamageOpts): boolean {
     if (e.dead) return false;
     const p = this.player;
-    const crit = Math.random() < p.stats.critChance;
+    const blocked = !o.aoe && !!o.from && this.shieldBlocks(e, o.from.x, o.from.y);
+    const crit = !o.dot && Math.random() < p.stats.critChance;
     let dmg = base * p.stats.dmgMult * (crit ? p.stats.critMult : 1);
-    if (p.mod('undying') && p.hp < p.stats.maxHp * 0.35) dmg *= 1.4;
-    dmg = Math.round(dmg * Phaser.Math.FloatBetween(0.92, 1.08));
-    const dealt = Math.min(dmg, e.hp);
-    e.hp -= dmg;
+    if (p.desperate) dmg *= 1.4;
+    if (this.timeStopT > 0 && this.timeStopBonus) dmg *= 1.3;
+    if (blocked) dmg *= 0.2;
+    dmg = Math.max(1, Math.round(dmg * Phaser.Math.FloatBetween(0.92, 1.08)));
+
+    let toHp = dmg;
+    if (e.ward > 0) {
+      const a = Math.min(e.ward, toHp);
+      e.ward -= a;
+      toHp -= a;
+    }
+    if (e.wardMax) e.wardRegenT = 4;
+    const dealt = Math.min(toHp, e.hp);
+    e.hp -= toHp;
     e.flashT = 0.07;
-    this.run.dmgDealt += dealt;
+    this.run.dmgDealt += dmg;
     const ls = p.stats.lifesteal + (p.rageT > 0 ? 0.15 : 0);
     if (ls > 0) p.heal(dealt * ls);
-    if (o.kb && o.kbAngle !== undefined) e.knock(o.kbAngle, o.kb);
-    this.fx.number(e.x, e.y - e.r, dmg, crit);
-    sfx(crit ? 'crit' : 'hit');
+    if (o.kb && o.kbAngle !== undefined && !blocked) e.knock(o.kbAngle, o.kb);
+    if (o.primary && p.hero.id === 'lumen' && this.echoT <= 0) {
+      this.echoT = 0.08;
+      p.cd.Q = Math.max(0, p.cd.Q - 100);
+      p.cd.E = Math.max(0, p.cd.E - 100);
+    }
+    if (!o.quiet) {
+      this.fx.number(e.x, e.y - e.r, dmg, crit, blocked ? '#8fb8ff' : o.dot ? '#ffa060' : '#ffffff');
+      if (!o.dot) sfx(blocked ? 'block' : crit ? 'crit' : 'hit');
+    }
     if (o.big || (crit && dmg > 60)) this.hitstop = Math.max(this.hitstop, 0.045);
 
     if (e.hp <= 0) {
@@ -311,9 +414,9 @@ export class GameScene extends Phaser.Scene {
     return false;
   }
 
-  private killEnemy(e: Enemy) {
+  private killEnemy(e: Enemy, suicide = false) {
     e.destroy();
-    this.run.kills++;
+    if (!suicide) this.run.kills++;
     const big = e.type === 'elite' || e.type === 'boss' || e.type === 'brute';
     this.fx.burst(e.x, e.y, e.def.color, big ? 30 : 12, big ? 320 : 200);
     if (big) {
@@ -321,8 +424,21 @@ export class GameScene extends Phaser.Scene {
       this.shake(e.type === 'boss' ? 600 : 160, e.type === 'boss' ? 0.02 : 0.008);
       this.hitstop = Math.max(this.hitstop, e.type === 'boss' ? 0.25 : 0.08);
     }
-    sfx('kill');
-    if (Math.random() < e.def.drop) {
+    if (!suicide) sfx('kill');
+
+    if (e.type === 'slime') {
+      for (let k = 0; k < 2; k++) {
+        const m = new Enemy(this, 'mini', e.x + (k ? 10 : -10), e.y, this.wave);
+        m.knock(Math.random() * Math.PI * 2, 160);
+        this.toAdd.push(m);
+      }
+    }
+    if (e.affix === 'splitting') {
+      for (let k = 0; k < 3; k++) this.toAdd.push(new Enemy(this, 'runner', e.x + Phaser.Math.Between(-30, 30), e.y + Phaser.Math.Between(-30, 30), this.wave));
+    }
+    if (e.type === 'bomber' && !suicide) this.bomberBlast(e, false);
+
+    if (!suicide && Math.random() < e.def.drop) {
       this.pickups.push({ img: this.add.image(e.x, e.y, 'heart').setDepth(4), x: e.x, y: e.y, life: 12 });
     }
     if (e === this.boss) {
@@ -330,23 +446,57 @@ export class GameScene extends Phaser.Scene {
       this.bossDefeated = true;
       this.hud.hideBoss();
       // the boss takes its summons with it
-      this.enemies.forEach((o) => { if (!o.dead) { this.fx.burst(o.x, o.y, o.def.color, 8); o.destroy(); } });
+      [...this.enemies, ...this.toAdd].forEach((o) => { if (!o.dead) { this.fx.burst(o.x, o.y, o.def.color, 8); o.destroy(); } });
+      this.toAdd = [];
       this.spawnQueue = [];
     }
+  }
+
+  /** Bomber explosion. Armed = it reached the player and blew itself up. */
+  bomberBlast(e: Enemy, armed: boolean) {
+    const r = 85;
+    this.fx.ring(e.x, e.y, r, 0xff5a2a, 320, 0.45);
+    this.fx.burst(e.x, e.y, 0xffa040, 20, 300);
+    this.shake(120, 0.006);
+    sfx('boom');
+    if (armed) {
+      const p = this.player;
+      if (Math.hypot(p.x - e.x, p.y - e.y) < r + p.r) this.hurtPlayer(26, 'bomber');
+      e.hp = 0;
+      this.killEnemy(e, true);
+    }
+    for (const o of this.enemiesInRadius(e.x, e.y, r)) {
+      if (o !== e) this.damage(o, 35, { aoe: true, kbAngle: Math.atan2(o.y - e.y, o.x - e.x), kb: 220 });
+    }
+  }
+
+  priestHeal(pr: Enemy) {
+    this.fx.ring(pr.x, pr.y, 220, 0x3fe0c0, 400, 0.08);
+    for (const e of this.enemiesInRadius(pr.x, pr.y, 220)) {
+      if (e.type === 'boss' || e.hp >= e.maxHp) continue;
+      const amt = Math.round(e.maxHp * 0.08);
+      e.hp = Math.min(e.maxHp, e.hp + amt);
+      if (e !== pr) this.fx.beam(pr.x, pr.y, e.x, e.y, 0x3fe0c0);
+      this.fx.text(e.x, e.y - e.r, `+${amt}`, '#3fe0c0');
+    }
+    sfx('heal');
   }
 
   hurtPlayer(amount: number, src: string) {
     this.lastHitBy = src;
     const p = this.player;
     if (p.iframes > 0 || this.over || this.godMode) return;
-    const dmg = Math.max(1, Math.round(amount * (1 - Math.min(0.6, p.stats.armor))));
+    let mult = 1 - Math.min(0.6, p.stats.armor);
+    if (p.desperate) mult *= 0.85;
+    if (p.rageT > 0 && p.rageArmor) mult *= 0.7;
+    const dmg = Math.max(1, Math.round(amount * mult));
     p.hp -= dmg;
     p.iframes = 0.6;
     this.run.dmgTaken += dmg;
     this.shake(120, 0.008);
     this.hurtOverlay.setAlpha(0.25);
     this.tweens.add({ targets: this.hurtOverlay, alpha: 0, duration: 250 });
-    this.fx.number(p.x, p.y - 20, dmg, false);
+    this.fx.number(p.x, p.y - 20, dmg, false, '#ff7070');
     sfx('hurt');
     if (p.hp <= 0) {
       p.hp = 0;
@@ -370,10 +520,18 @@ export class GameScene extends Phaser.Scene {
     e.fireT = 1;
   }
 
-  tryCast(key: 'Q' | 'E' | 'R') {
+  tryCast(slot: SkillSlot) {
     unlockAudio();
     if (this.over || this.intermission || this.scene.isPaused()) return;
-    if (cast(this, this.player, key)) this.hud.pulse(key);
+    const p = this.player;
+    if (p.cd[slot] > 0) {
+      sfx('deny');
+      return;
+    }
+    const eq = p.loadout[slot];
+    p.cd[slot] = p.cdOf(slot);
+    SKILLS[eq.id].cast(this, p, eq.lv);
+    this.hud.pulse(slot);
   }
 
   // ---------------------------------------------------------------- helpers
@@ -397,6 +555,16 @@ export class GameScene extends Phaser.Scene {
     this.cameras.main.shake(ms, intensity);
   }
 
+  /** Where the cursor (or the bot's target) is, for targeted abilities. */
+  aimPoint() {
+    if (this.bot) {
+      const t = this.bot.target;
+      if (t) return { x: t.x, y: t.y };
+    }
+    const ptr = this.input.activePointer;
+    return { x: Phaser.Math.Clamp(ptr.worldX, ARENA.x, ARENA.x + ARENA.w), y: Phaser.Math.Clamp(ptr.worldY, ARENA.y, ARENA.y + ARENA.h) };
+  }
+
   // ---------------------------------------------------------------- frame
 
   update(_t: number, delta: number) {
@@ -416,24 +584,44 @@ export class GameScene extends Phaser.Scene {
   private step(dtMs: number) {
     const dt = dtMs / 1000;
     this.run.time += dt;
+    this.echoT -= dt;
     this.bot?.update(this, dt);
     this.updatePlayer(dt);
+    this.effects = this.effects.filter((f) => {
+      const alive = f.update(this, dt);
+      if (!alive) {
+        f.destroy();
+        if ((f as unknown) === this.decoy) this.decoy = null;
+      }
+      return alive;
+    });
+
+    const stopped = this.timeStopT > 0;
+    if (stopped) {
+      this.timeStopT -= dt;
+      if (this.timeStopT <= 0) this.stopOverlay.setAlpha(0);
+    }
+    for (const e of this.enemies) {
+      if (e.dead) continue;
+      if (stopped) {
+        e.flashT -= dt;
+        e.sync();
+        if (e.flashT <= 0) e.img.setTint(0x8899cc);
+      } else {
+        e.update(this, dt);
+      }
+    }
+    this.updateBurns(dt);
+    this.enemies = this.enemies.filter((e) => !e.dead);
+    if (this.toAdd.length) {
+      this.enemies.push(...this.toAdd.filter((e) => !e.dead));
+      this.toAdd = [];
+    }
     this.updateWave(dtMs);
-    for (const e of this.enemies) if (!e.dead) e.update(this, dt);
-    this.separate();
-    this.updateBullets(dt);
+    this.separate(stopped);
+    this.updateBullets(dt, stopped);
     this.updatePickups(dt);
     this.enemies = this.enemies.filter((e) => !e.dead);
-  }
-
-  /** Where the cursor (or the bot's target) is, for targeted abilities. */
-  aimPoint() {
-    if (this.bot) {
-      const t = this.bot.target;
-      if (t) return { x: t.x, y: t.y };
-    }
-    const ptr = this.input.activePointer;
-    return { x: Phaser.Math.Clamp(ptr.worldX, ARENA.x, ARENA.x + ARENA.w), y: Phaser.Math.Clamp(ptr.worldY, ARENA.y, ARENA.y + ARENA.h) };
   }
 
   private updatePlayer(dt: number) {
@@ -454,13 +642,14 @@ export class GameScene extends Phaser.Scene {
         this.clampToArena(p);
       }
     }
-    updateKit(this, p, dt);
+    updatePlayerSkills(this, p, dt);
 
+    // primary weapon fires on its own toward the cursor; holding the left button also fires
     p.atkTimer -= dt;
-    const firing = this.bot ? this.bot.fire : ptr.leftButtonDown();
+    const firing = this.bot ? this.bot.fire : ptr.leftButtonDown() || (this.autoFire && this.enemies.length > 0);
     if (firing && p.atkTimer <= 0 && p.dashT <= 0) {
       p.atkTimer = 1 / p.atkRate;
-      primary(this, p);
+      p.weapon.fire(this, p, p.loadout.weapon.lv);
     }
 
     if (this.whirlImg) {
@@ -470,8 +659,21 @@ export class GameScene extends Phaser.Scene {
     p.sync();
   }
 
+  private updateBurns(dt: number) {
+    for (const e of this.enemies) {
+      if (e.dead || e.burnT <= 0) continue;
+      e.burnT -= dt;
+      e.burnTick -= dt;
+      if (e.burnTick <= 0) {
+        e.burnTick = 0.5;
+        this.damage(e, e.burnDps * 0.5, { dot: true, aoe: true });
+      }
+      if (e.burnT <= 0) e.burnDps = 0;
+    }
+  }
+
   /** Cheap pairwise push so crowds spread out instead of stacking. */
-  private separate() {
+  private separate(stopped: boolean) {
     const es = this.enemies;
     for (let i = 0; i < es.length; i++) {
       const a = es[i];
@@ -493,6 +695,7 @@ export class GameScene extends Phaser.Scene {
         b.y += (dy / d) * push * 2 * (1 - wa);
       }
     }
+    if (stopped) return;
     // contact damage
     const p = this.player;
     for (const e of es) {
@@ -505,24 +708,51 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private updateBullets(dt: number) {
+  private updateBullets(dt: number, stopped: boolean) {
     const p = this.player;
     for (const b of this.pBullets) {
+      b.age += dt;
+      b.life -= dt;
+      const outside = b.x < ARENA.x || b.x > ARENA.x + ARENA.w || b.y < ARENA.y || b.y > ARENA.y + ARENA.h;
+      if (b.boomerang) {
+        if (!b.returning && (b.age > b.boomerang || outside)) {
+          b.returning = true;
+          b.hit.clear();
+        }
+        if (b.returning) {
+          const d = Math.hypot(p.x - b.x, p.y - b.y);
+          b.vx = ((p.x - b.x) / d) * 720;
+          b.vy = ((p.y - b.y) / d) * 720;
+          if (d < 24) b.life = -1;
+        }
+        b.img.rotation += dt * 22;
+      }
+      const px = b.x;
+      const py = b.y;
       b.x += b.vx * dt;
       b.y += b.vy * dt;
-      b.life -= dt;
       b.img.setPosition(b.x, b.y);
+      if (b.grow) b.img.setScale(0.5 + (b.age / b.maxLife) * 1.4).setAlpha(1 - (b.age / b.maxLife) * 0.6);
       for (const e of this.enemies) {
         if (e.dead || b.hit.has(e) || b.pierce <= 0) continue;
-        if (Math.hypot(e.x - b.x, e.y - b.y) < e.r + b.r) {
-          b.hit.add(e);
-          b.pierce--;
-          this.damage(e, b.dmg, { kbAngle: Math.atan2(b.vy, b.vx), kb: 90 });
-          this.fx.burst(b.x, b.y, 0xffffff, 3, 120);
-          if (p.mod('echo')) { p.cd.Q = Math.max(0, p.cd.Q - 150); p.cd.E = Math.max(0, p.cd.E - 150); }
+        if (Math.hypot(e.x - b.x, e.y - b.y) >= e.r + b.r) continue;
+        b.hit.add(e);
+        if (this.shieldBlocks(e, px, py)) {
+          // the shield stops the projectile; damage() applies the 80% reduction
+          this.fx.burst(b.x, b.y, 0xbfe0ff, 4, 140);
+          this.damage(e, b.dmg, { from: { x: px, y: py }, primary: b.primary, quiet: b.quiet });
+          if (b.boomerang) { b.returning = true; b.hit.clear(); b.hit.add(e); } else b.pierce = 0;
+          continue;
         }
+        b.pierce--;
+        this.damage(e, b.dmg, { kbAngle: Math.atan2(b.vy, b.vx), kb: b.kb, from: { x: px, y: py }, primary: b.primary, quiet: b.quiet });
+        if (b.burn && !e.dead) {
+          e.burnT = b.burn.t;
+          e.burnDps = Math.max(e.burnDps, b.burn.dps);
+        }
+        if (!b.quiet) this.fx.burst(b.x, b.y, 0xffffff, 3, 120);
       }
-      if (b.pierce <= 0 || b.life <= 0 || b.x < ARENA.x || b.x > ARENA.x + ARENA.w || b.y < ARENA.y || b.y > ARENA.y + ARENA.h) {
+      if (b.pierce <= 0 || b.life <= 0 || (outside && !b.boomerang)) {
         b.life = -1;
         b.img.destroy();
       }
@@ -530,6 +760,11 @@ export class GameScene extends Phaser.Scene {
     this.pBullets = this.pBullets.filter((b) => b.life > 0);
 
     for (const b of this.eBullets) {
+      if (stopped) {
+        b.img.setTint(0x8899cc);
+        continue;
+      }
+      b.img.clearTint();
       b.x += b.vx * dt;
       b.y += b.vy * dt;
       b.life -= dt;
@@ -573,12 +808,22 @@ export class GameScene extends Phaser.Scene {
     const g = this.bars;
     g.clear();
     for (const e of this.enemies) {
-      if (e.hp >= e.maxHp || e.type === 'boss') continue;
+      if (e.type === 'boss') continue;
+      const hurt = e.hp < e.maxHp;
+      if (!hurt && !e.wardMax) continue;
       const w = e.r * 2;
       const x = e.x - e.r;
       const y = e.y - e.r - 9;
       g.fillStyle(0x000000, 0.6).fillRect(x - 1, y - 1, w + 2, 6);
       g.fillStyle(e.type === 'elite' ? 0xff4fd8 : 0xff5050).fillRect(x, y, w * Math.max(0, e.hp / e.maxHp), 4);
+      if (e.wardMax && e.ward > 0) g.fillStyle(0x8fd0ff).fillRect(x, y - 4, w * (e.ward / e.wardMax), 3);
     }
   }
 }
+
+const AFFIX_HINT: Record<Affix, string> = {
+  swift: '移动速度提高 50%',
+  warded: '带有会再生的护盾（蓝条），持续压制才能打穿',
+  splitting: '死亡时分裂出 3 只疾行者',
+  enraged: '生命低于一半后攻击频率翻倍',
+};

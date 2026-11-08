@@ -22,12 +22,12 @@ export class Fx {
     em.explode(count, x, y);
   }
 
-  number(x: number, y: number, amount: number, crit: boolean) {
+  number(x: number, y: number, amount: number, crit: boolean, color = '#ffffff') {
     const t = this.scene.add.text(x + Phaser.Math.Between(-8, 8), y - 10, String(Math.round(amount)), {
       fontFamily: FONT,
       fontSize: crit ? '22px' : '15px',
       fontStyle: 'bold',
-      color: crit ? '#ffd84a' : '#ffffff',
+      color: crit ? '#ffd84a' : color,
       stroke: '#000000',
       strokeThickness: 3,
     }).setOrigin(0.5).setDepth(50);
@@ -70,6 +70,32 @@ export class Fx {
     g.lineStyle(4, 0xffffff, 0.9);
     g.beginPath().arc(x, y, range, angle - half, angle + half).strokePath();
     this.scene.tweens.add({ targets: g, alpha: 0, duration: 160, onComplete: () => g.destroy() });
+  }
+
+  /** Jagged bolt through a list of points. */
+  lightning(pts: { x: number; y: number }[], color: number) {
+    const g = this.scene.add.graphics().setDepth(9);
+    for (const [w, c, a] of [[6, color, 0.5], [2, 0xffffff, 1]] as const) {
+      g.lineStyle(w, c, a).beginPath().moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < pts.length; i++) {
+        const p0 = pts[i - 1];
+        const p1 = pts[i];
+        for (let k = 1; k <= 4; k++) {
+          const t = k / 4;
+          const j = k < 4 ? 10 : 0;
+          g.lineTo(p0.x + (p1.x - p0.x) * t + Phaser.Math.Between(-j, j), p0.y + (p1.y - p0.y) * t + Phaser.Math.Between(-j, j));
+        }
+      }
+      g.strokePath();
+    }
+    this.scene.tweens.add({ targets: g, alpha: 0, duration: 160, onComplete: () => g.destroy() });
+  }
+
+  /** Line between two points that fades, e.g. a priest's heal. */
+  beam(x0: number, y0: number, x1: number, y1: number, color: number) {
+    const g = this.scene.add.graphics().setDepth(4);
+    g.lineStyle(3, color, 0.8).lineBetween(x0, y0, x1, y1);
+    this.scene.tweens.add({ targets: g, alpha: 0, duration: 450, onComplete: () => g.destroy() });
   }
 
   /** Ghost of a sprite left behind by dashes. */

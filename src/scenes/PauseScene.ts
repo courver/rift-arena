@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { H, W } from '../config';
 import { UPGRADES } from '../data/upgrades';
+import { loadoutText } from '../game/cards';
 import type { Player } from '../game/Player';
 import { button, textStyle } from '../ui/widgets';
 
@@ -26,13 +27,16 @@ export class PauseScene extends Phaser.Scene {
       const u = UPGRADES.find((x) => x.id === id);
       return u ? `${u.name}${n > 1 ? ' ×' + n : ''}` : id;
     });
-    this.add.text(W / 2, 300, '当前构筑', textStyle(18, '#a9a3ff', true)).setOrigin(0.5);
-    this.add.text(W / 2, 330, build.length ? build.join('　') : '（还没有强化）', {
+    this.add.text(W / 2, 290, '武器与技能', textStyle(18, '#a9a3ff', true)).setOrigin(0.5);
+    this.add.text(W / 2, 318, loadoutText(p.loadout), textStyle(15, '#ffd34a')).setOrigin(0.5, 0);
+    this.add.text(W / 2, 346, `被动 · ${p.hero.passive.name}：${p.hero.passive.desc}`, textStyle(14, '#c8cde0')).setOrigin(0.5, 0);
+    this.add.text(W / 2, 390, '属性强化', textStyle(18, '#a9a3ff', true)).setOrigin(0.5);
+    this.add.text(W / 2, 418, build.length ? build.join('　') : '（还没有属性强化）', {
       ...textStyle(15, '#dfe3f0'), align: 'center', wordWrap: { width: 800, useAdvancedWrap: true },
     }).setOrigin(0.5, 0);
 
-    button(this, W / 2, H - 200, '继续 (ESC)', () => this.resume());
-    button(this, W / 2, H - 140, '放弃本局，回到选英雄', () => {
+    button(this, W / 2, H - 160, '继续 (ESC)', () => this.resume());
+    button(this, W / 2, H - 100, '放弃本局，回到选英雄', () => {
       this.scene.stop('Game');
       this.scene.start('Menu');
     }, 300, 0x8890a8);

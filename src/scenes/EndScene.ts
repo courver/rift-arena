@@ -1,7 +1,8 @@
 import Phaser from 'phaser';
 import { BOT_LOOP, H, TOTAL_WAVES, W } from '../config';
-import { HEROES, HeroId } from '../data/heroes';
+import { Equip, HEROES, HeroId, Slot } from '../data/heroes';
 import { UPGRADES } from '../data/upgrades';
+import { loadoutText } from '../game/cards';
 import type { RunStats } from './GameScene';
 import { button, textStyle } from '../ui/widgets';
 
@@ -11,6 +12,7 @@ interface EndData {
   wave: number;
   run: RunStats;
   mods: Record<string, number>;
+  loadout: Record<Slot, Equip>;
 }
 
 const BEST_KEY = 'rift-best';
@@ -58,8 +60,9 @@ export class EndScene extends Phaser.Scene {
       const u = UPGRADES.find((x) => x.id === id);
       return u ? `${u.name}${n > 1 ? ' ×' + n : ''}` : id;
     });
-    this.add.text(W / 2, 390, '本局构筑', textStyle(18, '#a9a3ff', true)).setOrigin(0.5);
-    this.add.text(W / 2, 420, build.length ? build.join('　') : '（无）', {
+    this.add.text(W / 2, 385, '本局构筑', textStyle(18, '#a9a3ff', true)).setOrigin(0.5);
+    this.add.text(W / 2, 412, loadoutText(d.loadout), textStyle(15, '#ffd34a')).setOrigin(0.5, 0);
+    this.add.text(W / 2, 442, build.length ? build.join('　') : '（无属性强化）', {
       ...textStyle(15, '#dfe3f0'), align: 'center', wordWrap: { width: 820, useAdvancedWrap: true },
     }).setOrigin(0.5, 0);
 
