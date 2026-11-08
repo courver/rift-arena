@@ -1,7 +1,8 @@
 import Phaser from 'phaser';
-import { ARENA, BOT, DEBUG, H, SPEED, TOTAL_WAVES, W } from '../config';
+import { ARENA, BOT, DEBUG, H, SPEED, TOTAL_WAVES, TOUCH, W } from '../config';
+import { TouchControls } from '../ui/TouchControls';
 import { Bot } from '../game/bot';
-import { AFFIXES, Affix, ENEMIES, EnemyType } from '../data/enemies';
+import { AFFIXES, Affix, BOSS_PHASES, ENEMIES, EnemyType, isBossType } from '../data/enemies';
 import { HEROES, HeroId, SkillSlot } from '../data/heroes';
 import { WAVES } from '../data/waves';
 import { applyCard, Card, cardLabel, rollCards } from '../game/cards';
@@ -38,6 +39,8 @@ interface EBullet {
   img: Phaser.GameObjects.Image;
   x: number; y: number; vx: number; vy: number;
   dmg: number; r: number; life: number;
+  /** turn rate toward the player in rad/s; 0 = straight */
+  homing: number;
 }
 
 interface Pickup { img: Phaser.GameObjects.Image; x: number; y: number; life: number }
@@ -49,6 +52,9 @@ export interface RunStats {
   time: number;
   picks: string[];
 }
+
+/** Telegraphed danger zone (circle, or a beam when `a` is set); the bot steers away from these. */
+export interface Hazard { x: number; y: number; r: number; t: number; a?: number; len?: number }
 
 export interface DamageOpts {
   kbAngle?: number;
@@ -76,6 +82,7 @@ export class GameScene extends Phaser.Scene {
   eBullets: EBullet[] = [];
   pickups: Pickup[] = [];
   effects: Effect[] = [];
+  hazards: Hazard[] = [];
   decoy: { x: number; y: number; r: number } | null = null;
   fx!: Fx;
   hud!: Hud;
@@ -93,9 +100,14 @@ export class GameScene extends Phaser.Scene {
   bossDefeated = false;
   run!: RunStats;
   rerolls = 1;
+  /** boss waves grant a second pick */
+  bonusPick = false;
   godMode = false;
   autoFire = true;
   bot: Bot | null = null;
+  touch: TouchControls | null = null;
+  /** auto-aim target on touch screens */
+  private aimTarget: Enemy | null = null;
   lastHitBy = '';
   private toAdd: Enemy[] = [];
   private seen = new Set<EnemyType>();
@@ -118,6 +130,7 @@ export class GameScene extends Phaser.Scene {
     this.eBullets = [];
     this.pickups = [];
     this.effects = [];
+    this.hazards = [];
     this.decoy = null;
     this.toAdd = [];
     this.seen = new Set();
@@ -132,6 +145,7 @@ export class GameScene extends Phaser.Scene {
     this.boss = null;
     this.bossDefeated = false;
     this.rerolls = 1;
+    this.bonusPick = false;
     this.godMode = false;
     this.whirlImg = null;
     this.bot = BOT ? new Bot() : null;
@@ -147,6 +161,7 @@ export class GameScene extends Phaser.Scene {
     this.hurtOverlay = this.add.rectangle(W / 2, H / 2, W, H, 0xff0000, 0).setDepth(90);
     this.stopOverlay = this.add.rectangle(W / 2, H / 2, W, H, 0x4060ff, 0).setDepth(2);
     this.hud = new Hud(this);
+    this.touch = TOUCH && !BOT ? new TouchControls(this) : null;
 
     const kb = this.input.keyboard!;
     this.keys = kb.addKeys('W,A,S,D,UP,DOWN,LEFT,RIGHT,Q,E,R,SPACE,SHIFT') as Record<string, Phaser.Input.Keyboard.Key>;
@@ -174,7 +189,7 @@ export class GameScene extends Phaser.Scene {
     }
     (window as unknown as { __game: GameScene }).__game = this;
 
-    this.events.on('resume', () => this.input.keyboard?.resetKeys());
+    this.events.on('resume', () => { this.input.keyboard?.resetKeys(); this.touch?.release(); });
     this.time.timeScale = SPEED;
     this.tweens.timeScale = SPEED;
     this.time.delayedCall(600, () => this.startWave(1));
@@ -199,11 +214,14 @@ export class GameScene extends Phaser.Scene {
     this.waveTime = 0;
     this.waveClearT = -1;
     this.spawnQueue = [];
+    this.bossDefeated = false;
     for (const grp of WAVES[n - 1]) {
       for (let i = 0; i < grp.count; i++) this.spawnQueue.push({ at: grp.delay + i * grp.interval, type: grp.type });
     }
     this.spawnQueue.sort((a, b) => a.at - b.at);
-    this.hud.banner(n === TOTAL_WAVES ? '最终波 · 裂隙之主' : `第 ${n} 波`, n === TOTAL_WAVES ? '#ff5577' : '#ffffff');
+    const boss = WAVES[n - 1].find((g) => isBossType(g.type));
+    if (boss) this.hud.banner(`${n === TOTAL_WAVES ? '最终首领' : '首领'} · ${ENEMIES[boss.type].name}`, '#ff5577');
+    else this.hud.banner(`第 ${n} 波`, '#ffffff');
   }
 
   /** Spawn with a short telegraph so enemies never appear on top of the player unannounced. */
@@ -220,14 +238,14 @@ export class GameScene extends Phaser.Scene {
     const r = ENEMIES[type].r;
     const sx = Phaser.Math.Clamp(x!, ARENA.x + r, ARENA.x + ARENA.w - r);
     const sy = Phaser.Math.Clamp(y!, ARENA.y + r, ARENA.y + ARENA.h - r);
-    const big = type === 'boss' || type === 'elite';
+    const big = isBossType(type) || type === 'elite';
     const ms = big ? 1200 : 650;
     this.pendingSpawns++;
     this.fx.telegraphCircle(sx, sy, r + 6, ms, ENEMIES[type].color);
     sfx('spawn');
     this.time.delayedCall(ms, () => {
       this.pendingSpawns--;
-      if (this.over || (this.bossDefeated && type !== 'boss')) return;
+      if (this.over || (this.bossDefeated && !isBossType(type))) return;
       const affix = type === 'elite' ? (Phaser.Utils.Array.GetRandom(Object.keys(AFFIXES)) as Affix) : null;
       const e = new Enemy(this, type, sx, sy, this.wave, affix);
       this.enemies.push(e);
@@ -235,7 +253,7 @@ export class GameScene extends Phaser.Scene {
         this.seen.add(type);
         if (ENEMIES[type].hint && type !== 'elite') this.hud.hint(ENEMIES[type].name, ENEMIES[type].hint, ENEMIES[type].color);
       }
-      if (type === 'boss') {
+      if (isBossType(type)) {
         this.boss = e;
         this.shake(400, 0.012);
         this.hud.showBoss(e);
@@ -262,10 +280,10 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private openUpgrades() {
+  private openUpgrades(heal = true) {
     this.intermission = true;
     const p = this.player;
-    p.heal(Math.round(p.stats.maxHp * 0.2));
+    if (heal) p.heal(Math.round(p.stats.maxHp * 0.2));
     this.eBullets.forEach((b) => b.img.destroy());
     this.eBullets = [];
     this.scene.pause();
@@ -278,10 +296,18 @@ export class GameScene extends Phaser.Scene {
         this.rerolls--;
         return rollCards(p);
       },
+      bonus: this.bonusPick,
       onPick: (c: Card) => {
         this.run.picks.push(cardLabel(c, p));
         applyCard(c, p);
         this.hud.refreshLoadout();
+        if (this.bonusPick) {
+          // boss reward: a second pick right away
+          this.bonusPick = false;
+          // the game scene is paused here, so use a real timer; the Upgrade scene needs a tick to shut down first
+          window.setTimeout(() => this.openUpgrades(false), 50);
+          return;
+        }
         this.intermission = false;
         this.scene.resume();
         this.startWave(this.wave + 1);
@@ -289,7 +315,7 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  private openPause() {
+  openPause() {
     if (this.over || this.intermission) return;
     this.scene.pause();
     this.scene.launch('Pause', { player: this.player });
@@ -311,7 +337,7 @@ export class GameScene extends Phaser.Scene {
     console.log('[run]', JSON.stringify(result));
     if (!win) {
       this.fx.burst(this.player.x, this.player.y, this.player.hero.color, 40, 300);
-      this.player.sprite.setVisible(false);
+      this.player.hide();
     }
     this.time.delayedCall(win ? 600 : 1200, () => {
       this.scene.start('End', { win, hero: this.heroId, wave: this.wave, run: this.run, mods: this.player.mods, loadout: this.player.loadout });
@@ -330,9 +356,44 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  spawnEBullet(x: number, y: number, angle: number, speed: number, dmg: number) {
-    const img = this.add.image(x, y, 'ebullet').setDepth(7);
-    this.eBullets.push({ img, x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, dmg, r: 6, life: 5 });
+  spawnEBullet(x: number, y: number, angle: number, speed: number, dmg: number, homing = 0) {
+    const img = this.add.image(x, y, homing ? 'orb' : 'ebullet').setDepth(7);
+    this.eBullets.push({ img, x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, dmg, r: homing ? 9 : 6, life: homing ? 6 : 5, homing });
+  }
+
+  /** Telegraphed circle that hurts the player if they are still inside when it lands. */
+  delayedHit(x: number, y: number, r: number, ms: number, dmg: number, src: string, color: number) {
+    this.fx.telegraphCircle(x, y, r, ms, color);
+    this.hazards.push({ x, y, r, t: ms / 1000 });
+    this.time.delayedCall(ms, () => {
+      if (this.over) return;
+      this.fx.ring(x, y, r, color, 300, 0.45);
+      this.fx.burst(x, y, color, 14, 240);
+      this.shake(80, 0.004);
+      const p = this.player;
+      if (Math.hypot(p.x - x, p.y - y) < r + p.r * 0.5) this.hurtPlayer(dmg, src);
+    });
+  }
+
+  /** Telegraphed beam from (x, y); hurts the player if they stand on the line when it fires. */
+  beamHit(x: number, y: number, angle: number, len: number, width: number, ms: number, dmg: number, src: string) {
+    this.fx.telegraphLine(x, y, angle, len, width, ms);
+    this.hazards.push({ x, y, r: width / 2, t: ms / 1000, a: angle, len });
+    this.time.delayedCall(ms, () => {
+      if (this.over) return;
+      const g = this.add.graphics().setDepth(8);
+      const ex = x + Math.cos(angle) * len;
+      const ey = y + Math.sin(angle) * len;
+      g.lineStyle(width, 0xd9a8ff, 0.5).lineBetween(x, y, ex, ey);
+      g.lineStyle(width * 0.35, 0xffffff, 1).lineBetween(x, y, ex, ey);
+      this.tweens.add({ targets: g, alpha: 0, duration: 250, onComplete: () => g.destroy() });
+      const p = this.player;
+      const rx = p.x - x;
+      const ry = p.y - y;
+      const along = rx * Math.cos(angle) + ry * Math.sin(angle);
+      const across = Math.abs(-rx * Math.sin(angle) + ry * Math.cos(angle));
+      if (along > 0 && along < len && across < width / 2 + p.r * 0.5) this.hurtPlayer(dmg, src);
+    });
   }
 
   spawnWhirl(p: Player) {
@@ -417,12 +478,12 @@ export class GameScene extends Phaser.Scene {
   private killEnemy(e: Enemy, suicide = false) {
     e.destroy();
     if (!suicide) this.run.kills++;
-    const big = e.type === 'elite' || e.type === 'boss' || e.type === 'brute';
+    const big = e.type === 'elite' || e.isBoss || e.type === 'brute';
     this.fx.burst(e.x, e.y, e.def.color, big ? 30 : 12, big ? 320 : 200);
     if (big) {
       this.fx.ring(e.x, e.y, e.r * 2.5, e.def.color, 400);
-      this.shake(e.type === 'boss' ? 600 : 160, e.type === 'boss' ? 0.02 : 0.008);
-      this.hitstop = Math.max(this.hitstop, e.type === 'boss' ? 0.25 : 0.08);
+      this.shake(e.isBoss ? 600 : 160, e.isBoss ? 0.02 : 0.008);
+      this.hitstop = Math.max(this.hitstop, e.isBoss ? 0.25 : 0.08);
     }
     if (!suicide) sfx('kill');
 
@@ -444,6 +505,10 @@ export class GameScene extends Phaser.Scene {
     if (e === this.boss) {
       this.boss = null;
       this.bossDefeated = true;
+      if (this.wave < TOTAL_WAVES) {
+        this.bonusPick = true;
+        this.hud.banner(`击败 ${e.def.name}！额外强化 +1`, '#ffd34a');
+      }
       this.hud.hideBoss();
       // the boss takes its summons with it
       [...this.enemies, ...this.toAdd].forEach((o) => { if (!o.dead) { this.fx.burst(o.x, o.y, o.def.color, 8); o.destroy(); } });
@@ -473,7 +538,7 @@ export class GameScene extends Phaser.Scene {
   priestHeal(pr: Enemy) {
     this.fx.ring(pr.x, pr.y, 220, 0x3fe0c0, 400, 0.08);
     for (const e of this.enemiesInRadius(pr.x, pr.y, 220)) {
-      if (e.type === 'boss' || e.hp >= e.maxHp) continue;
+      if (e.isBoss || e.hp >= e.maxHp) continue;
       const amt = Math.round(e.maxHp * 0.08);
       e.hp = Math.min(e.maxHp, e.hp + amt);
       if (e !== pr) this.fx.beam(pr.x, pr.y, e.x, e.y, 0x3fe0c0);
@@ -505,7 +570,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   onBossPhase(e: Enemy, ph: number) {
-    this.hud.banner(ph === 2 ? '裂隙之主 · 第二阶段' : '裂隙之主 · 狂暴', '#ff5577');
+    const last = ph === BOSS_PHASES[e.type]!.length + 1;
+    this.hud.banner(`${e.def.name} · ${last ? '狂暴' : '第二阶段'}`, '#ff5577');
     this.fx.ring(e.x, e.y, 260, 0xff3355, 500, 0.3);
     this.shake(300, 0.01);
     // clear space so the phase change reads clearly
@@ -543,6 +609,7 @@ export class GameScene extends Phaser.Scene {
 
   moveDir(): { x: number; y: number } | null {
     if (this.bot) return this.bot.move;
+    if (this.touch?.move) return this.touch.move;
     const k = this.keys;
     const x = (k.D.isDown || k.RIGHT.isDown ? 1 : 0) - (k.A.isDown || k.LEFT.isDown ? 1 : 0);
     const y = (k.S.isDown || k.DOWN.isDown ? 1 : 0) - (k.W.isDown || k.UP.isDown ? 1 : 0);
@@ -557,9 +624,11 @@ export class GameScene extends Phaser.Scene {
 
   /** Where the cursor (or the bot's target) is, for targeted abilities. */
   aimPoint() {
-    if (this.bot) {
-      const t = this.bot.target;
-      if (t) return { x: t.x, y: t.y };
+    const t = this.bot ? this.bot.target : this.touch ? this.aimTarget : null;
+    if (t && !t.dead) return { x: t.x, y: t.y };
+    if (this.touch) {
+      const p = this.player;
+      return { x: p.x + Math.cos(p.aimAngle) * 200, y: p.y + Math.sin(p.aimAngle) * 200 };
     }
     const ptr = this.input.activePointer;
     return { x: Phaser.Math.Clamp(ptr.worldX, ARENA.x, ARENA.x + ARENA.w), y: Phaser.Math.Clamp(ptr.worldY, ARENA.y, ARENA.y + ARENA.h) };
@@ -579,12 +648,14 @@ export class GameScene extends Phaser.Scene {
     for (let i = 0; i < SPEED && !this.over && !this.intermission; i++) this.step(Math.min(delta, 50));
     this.drawBars();
     this.hud.update();
+    this.touch?.update();
   }
 
   private step(dtMs: number) {
     const dt = dtMs / 1000;
     this.run.time += dt;
     this.echoT -= dt;
+    if (this.hazards.length) this.hazards = this.hazards.filter((h) => (h.t -= dt) > 0);
     this.bot?.update(this, dt);
     this.updatePlayer(dt);
     this.effects = this.effects.filter((f) => {
@@ -627,14 +698,18 @@ export class GameScene extends Phaser.Scene {
   private updatePlayer(dt: number) {
     const p = this.player;
     const ptr = this.input.activePointer;
-    p.aimAngle = this.bot ? this.bot.aim : Math.atan2(ptr.worldY - p.y, ptr.worldX - p.x);
+    if (this.bot) p.aimAngle = this.bot.aim;
+    else if (this.touch) this.autoAim(p);
+    else p.aimAngle = Math.atan2(ptr.worldY - p.y, ptr.worldX - p.x);
     p.iframes -= dt;
     p.rageT -= dt;
     for (const k of ['Q', 'E', 'R'] as const) p.cd[k] = Math.max(0, p.cd[k] - dt * 1000);
     if (p.stats.regen) p.heal(p.stats.regen * dt);
 
+    p.moving = false;
     if (p.dashT <= 0) {
       const mv = this.moveDir();
+      p.moving = !!mv;
       if (mv) {
         const spd = p.speed * (p.whirlT > 0 ? 0.85 : 1);
         p.x += mv.x * spd * dt;
@@ -646,17 +721,33 @@ export class GameScene extends Phaser.Scene {
 
     // primary weapon fires on its own toward the cursor; holding the left button also fires
     p.atkTimer -= dt;
-    const firing = this.bot ? this.bot.fire : ptr.leftButtonDown() || (this.autoFire && this.enemies.length > 0);
+    const firing = this.bot ? this.bot.fire : this.touch ? this.enemies.length > 0 : ptr.leftButtonDown() || (this.autoFire && this.enemies.length > 0);
     if (firing && p.atkTimer <= 0 && p.dashT <= 0) {
       p.atkTimer = 1 / p.atkRate;
       p.weapon.fire(this, p, p.loadout.weapon.lv);
+      if (p.loadout.weapon.id === 'slash') p.swingT = 0.15;
+      else p.recoilT = 0.06;
     }
 
     if (this.whirlImg) {
       if (p.whirlT > 0) this.whirlImg.setPosition(p.x, p.y).setRotation(this.whirlImg.rotation + dt * 18);
       else { this.whirlImg.destroy(); this.whirlImg = null; }
     }
-    p.sync();
+    p.sync(dt);
+  }
+
+  /** Touch screens: aim at the nearest enemy, otherwise where we're walking. */
+  private autoAim(p: Player) {
+    let best = Infinity;
+    this.aimTarget = null;
+    for (const e of this.enemies) {
+      if (e.dead) continue;
+      const d = Math.hypot(e.x - p.x, e.y - p.y) - (e.isBoss ? 120 : 0);
+      if (d < best) { best = d; this.aimTarget = e; }
+    }
+    const t = this.aimTarget;
+    if (t) p.aimAngle = Math.atan2(t.y - p.y, t.x - p.x);
+    else if (this.touch?.move) p.aimAngle = Math.atan2(this.touch.move.y, this.touch.move.x);
   }
 
   private updateBurns(dt: number) {
@@ -688,7 +779,7 @@ export class GameScene extends Phaser.Scene {
         if (d2 >= min * min || d2 === 0) continue;
         const d = Math.sqrt(d2);
         const push = (min - d) / 2;
-        const wa = a.type === 'boss' ? 0 : b.type === 'boss' ? 1 : 0.5;
+        const wa = a.isBoss ? 0 : b.isBoss ? 1 : 0.5;
         a.x -= (dx / d) * push * 2 * wa;
         a.y -= (dy / d) * push * 2 * wa;
         b.x += (dx / d) * push * 2 * (1 - wa);
@@ -765,6 +856,15 @@ export class GameScene extends Phaser.Scene {
         continue;
       }
       b.img.clearTint();
+      if (b.homing) {
+        const want = Math.atan2(p.y - b.y, p.x - b.x);
+        const cur = Math.atan2(b.vy, b.vx);
+        const a = cur + Phaser.Math.Clamp(Phaser.Math.Angle.Wrap(want - cur), -b.homing * dt, b.homing * dt);
+        const sp = Math.hypot(b.vx, b.vy);
+        b.vx = Math.cos(a) * sp;
+        b.vy = Math.sin(a) * sp;
+        b.img.rotation += dt * 6;
+      }
       b.x += b.vx * dt;
       b.y += b.vy * dt;
       b.life -= dt;
@@ -808,7 +908,7 @@ export class GameScene extends Phaser.Scene {
     const g = this.bars;
     g.clear();
     for (const e of this.enemies) {
-      if (e.type === 'boss') continue;
+      if (e.isBoss) continue;
       const hurt = e.hp < e.maxHp;
       if (!hurt && !e.wardMax) continue;
       const w = e.r * 2;

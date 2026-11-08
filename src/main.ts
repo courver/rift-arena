@@ -14,8 +14,13 @@ const game = new Phaser.Game({
   height: H,
   backgroundColor: '#0b0d16',
   scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
+  // joystick + skill button at the same time
+  input: { activePointers: 3 },
   scene: [BootScene, MenuScene, GameScene, UpgradeScene, PauseScene, EndScene],
 });
+
+// exposed for debugging and automated checks
+(window as unknown as { __phaser: Phaser.Game }).__phaser = game;
 
 // ?bot&sim: drive the game with fixed 60 Hz headless steps instead of requestAnimationFrame,
 // so balance simulations run as fast as the CPU allows, even in a background tab.

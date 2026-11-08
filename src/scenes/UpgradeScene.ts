@@ -10,6 +10,7 @@ interface UpgradeData {
   player: Player;
   cards: Card[];
   rerolls: number;
+  bonus?: boolean;
   reroll: () => Card[];
   onPick: (c: Card) => void;
 }
@@ -29,7 +30,7 @@ export class UpgradeScene extends Phaser.Scene {
     this.picked = false;
     this.cards = [];
     this.add.rectangle(W / 2, H / 2, W, H, 0x05060c, 0.72);
-    this.add.text(W / 2, 100, `第 ${data.wave} 波完成`, textStyle(36, '#7bff9e', true)).setOrigin(0.5);
+    this.add.text(W / 2, 100, data.bonus ? `首领击破 · 额外强化` : `第 ${data.wave} 波完成`, textStyle(36, data.bonus ? '#ffd34a' : '#7bff9e', true)).setOrigin(0.5);
     this.add.text(W / 2, 146, `选择一项强化（已回复 20% 生命）· 下一波：${data.wave + 1} / ${TOTAL_WAVES}`, textStyle(16, '#c8cde0')).setOrigin(0.5);
     this.add.text(W / 2, 172, '蓝色 = 升级当前武器 / 技能　紫色 = 更换（保留等级 -1）　灰色 = 属性', textStyle(13, '#8890a8')).setOrigin(0.5);
     this.showCards(data.cards);

@@ -100,8 +100,9 @@ export class Fx {
 
   /** Ghost of a sprite left behind by dashes. */
   afterimage(src: Phaser.GameObjects.Image, color: number) {
-    const a = this.scene.add.image(src.x, src.y, src.texture.key).setRotation(src.rotation).setTint(color).setAlpha(0.6).setDepth(9);
-    this.scene.tweens.add({ targets: a, alpha: 0, scale: 1.3, duration: 300, onComplete: () => a.destroy() });
+    const a = this.scene.add.image(src.x, src.y, src.texture.key).setRotation(src.rotation).setFlipX(src.flipX)
+      .setScale(src.scaleX, src.scaleY).setTintFill(color).setAlpha(0.5).setDepth(9);
+    this.scene.tweens.add({ targets: a, alpha: 0, scaleX: src.scaleX * 1.3, scaleY: src.scaleY * 1.3, duration: 300, onComplete: () => a.destroy() });
   }
 
   /** Pulsing danger circle; resolves after `ms`. */

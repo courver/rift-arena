@@ -14,6 +14,8 @@ export const DEBUG = params.has('debug');
 export const BOT = params.has('bot');
 export const BOT_LOOP = params.has('loop');
 export const SIM = BOT && params.has('sim');
+/** Phone / tablet controls: virtual joystick, skill buttons, auto-aim. `?touch` forces it on desktop. */
+export const TOUCH = params.has('touch') || window.matchMedia('(pointer: coarse)').matches;
 export const SPEED = Math.max(1, Math.min(8, Number(params.get('speed')) || 1));
 
 export const RARITY_COLOR = { common: 0x9aa4b8, rare: 0x4aa8ff, epic: 0xc06bff } as const;

@@ -1,5 +1,5 @@
 export type EnemyType =
-  | 'slime' | 'mini' | 'runner' | 'shooter' | 'bomber' | 'shielder' | 'priest' | 'brute' | 'elite' | 'boss';
+  | 'slime' | 'mini' | 'runner' | 'shooter' | 'bomber' | 'shielder' | 'priest' | 'brute' | 'elite' | 'boss' | 'colossus' | 'weaver';
 
 export interface EnemyDef {
   name: string;
@@ -26,6 +26,21 @@ export const ENEMIES: Record<EnemyType, EnemyDef> = {
   brute: { name: '重甲蛮兵', hint: '红色预警线后冲锋', hp: 150, speed: 52, dmg: 18, r: 22, color: 0xff9a3c, drop: 0.2 },
   elite: { name: '精英 · 裂隙守卫', hint: '冲锋 + 环形弹幕，并带随机词缀', hp: 600, speed: 60, dmg: 20, r: 30, color: 0xff4fd8, drop: 1 },
   boss: { name: '裂隙之主', hint: '', hp: 4200, speed: 55, dmg: 22, r: 54, color: 0xff3355, drop: 0 },
+  colossus: { name: '熔核巨像', hint: '', hp: 1500, speed: 42, dmg: 18, r: 46, color: 0xff8a3a, drop: 0 },
+  weaver: { name: '虚空织影', hint: '', hp: 2300, speed: 75, dmg: 18, r: 34, color: 0xb06bff, drop: 0 },
+};
+
+export const BOSS_TYPES: EnemyType[] = ['colossus', 'weaver', 'boss'];
+
+export function isBossType(t: EnemyType) {
+  return BOSS_TYPES.includes(t);
+}
+
+/** Hp fractions where each boss changes phase (also drawn as ticks on the boss bar). */
+export const BOSS_PHASES: Partial<Record<EnemyType, number[]>> = {
+  boss: [0.66, 0.33],
+  colossus: [0.5],
+  weaver: [0.5],
 };
 
 export type Affix = 'swift' | 'warded' | 'splitting' | 'enraged';

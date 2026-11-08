@@ -61,6 +61,28 @@ export class Bot {
       fx += (-b.vy / sp) * side * w;
       fy += (b.vx / sp) * side * w;
     }
+    // step out of telegraphed slams and beams
+    for (const h of s.hazards) {
+      if (h.a === undefined) {
+        const dx = p.x - h.x;
+        const dy = p.y - h.y;
+        const d = Math.max(1, Math.hypot(dx, dy));
+        if (d < h.r + p.r + 20) {
+          fx += (dx / d) * 6;
+          fy += (dy / d) * 6;
+        }
+      } else {
+        const rx = p.x - h.x;
+        const ry = p.y - h.y;
+        const along = rx * Math.cos(h.a) + ry * Math.sin(h.a);
+        const across = -rx * Math.sin(h.a) + ry * Math.cos(h.a);
+        if (along > 0 && along < h.len! && Math.abs(across) < h.r + p.r + 20) {
+          const side = Math.sign(across) || 1;
+          fx += -Math.sin(h.a) * side * 6;
+          fy += Math.cos(h.a) * side * 6;
+        }
+      }
+    }
     // keep off the walls
     const cx = ARENA.x + ARENA.w / 2;
     const cy = ARENA.y + ARENA.h / 2;

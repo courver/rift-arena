@@ -5,6 +5,7 @@ import type { Player } from './Player';
 import type { Enemy } from './Enemy';
 import { sfx } from '../sfx';
 import { ARENA } from '../config';
+import { ART_SCALE } from './art';
 
 const b =(cond: boolean) => (cond ? 1 : 0);
 
@@ -38,7 +39,7 @@ function frostNova(s: GameScene, p: Player, x: number, y: number, radius: number
   s.fx.burst(x, y, 0x9be8ff, 24, 320);
   for (const e of s.enemiesInRadius(x, y, r)) {
     s.damage(e, dmg, { kbAngle: Math.atan2(e.y - y, e.x - x), kb: 180, aoe: true });
-    if (freeze && e.type !== 'boss') e.freezeT = 1.2;
+    if (freeze && !e.isBoss) e.freezeT = 1.2;
     e.slowT = 2.2;
   }
   sfx('nova');
@@ -76,7 +77,8 @@ class Decoy implements Effect {
   img: Phaser.GameObjects.Image;
   readonly r = 16;
   constructor(s: GameScene, public x: number, public y: number, private t: number, private boom: number, color: number) {
-    this.img = s.add.image(x, y, 'decoy').setTint(color).setAlpha(0.75).setDepth(9);
+    // a ghostly copy of the hero
+    this.img = s.add.image(x, y, 'hero_' + s.player.hero.id).setScale(ART_SCALE).setFlipX(s.player.sprite.flipX).setTint(color).setAlpha(0.75).setDepth(9);
     s.tweens.add({ targets: this.img, alpha: 0.4, yoyo: true, repeat: -1, duration: 300 });
     s.decoy = this;
   }
@@ -104,7 +106,7 @@ class GravityWell implements Effect {
     this.img.rotation -= dt * 4;
     this.img.setScale(((this.r * 2) / 128) * (0.85 + 0.15 * Math.sin(this.t * 10)));
     for (const e of s.enemiesInRadius(this.x, this.y, this.r)) {
-      if (e.type === 'boss') continue;
+      if (e.isBoss) continue;
       const d = Math.hypot(this.x - e.x, this.y - e.y);
       if (d < 8) continue;
       const pull = (e.type === 'elite' ? 80 : 190) * dt;
@@ -251,7 +253,7 @@ export const SKILLS: Record<string, SkillDef> = {
     cd: (lv) => 7000 - 400 * (lv - 1),
     levels: ['分身持续 +0.4 秒', '分身消失时爆炸', '分身持续 +0.4 秒', '爆炸伤害翻倍'],
     cast(s, p, lv) {
-      s.addEffect(new Decoy(s, p.x, p.y, 2.5 + 0.4 * (b(lv >= 2) + b(lv >= 4)), lv >= 3 ? (55 + 10 * (lv - 3)) * (lv >= 5 ? 2 : 1) : 0, p.hero.color));
+      s.addEffect(new Decoy(s, p.x, p.y, 2.5 + 0.4 * (b(lv >= 2) + b(lv >= 4)), lv >= 3 ? (55 + 10 * (lv - 3)) * (lv >= 5 ? 2 : 1) : 0, 0xc8a8ff));
       const a = dashDir(s, p);
       s.fx.afterimage(p.sprite, 0xc08bff);
       p.x += Math.cos(a) * 160;
@@ -384,7 +386,7 @@ export function updatePlayerSkills(s: GameScene, p: Player, dt: number) {
     const r = 115 * p.stats.areaMult;
     if (p.whirlLv >= 3) {
       for (const e of s.enemiesInRadius(p.x, p.y, r * 1.6)) {
-        if (e.type === 'boss') continue;
+        if (e.isBoss) continue;
         const a = Math.atan2(p.y - e.y, p.x - e.x);
         e.x += Math.cos(a) * 140 * dt;
         e.y += Math.sin(a) * 140 * dt;

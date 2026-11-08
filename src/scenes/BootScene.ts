@@ -1,8 +1,8 @@
 import Phaser from 'phaser';
-import { ENEMIES } from '../data/enemies';
 import { HEROES } from '../data/heroes';
+import { buildArt } from '../game/art';
 
-/** All art is generated here from vector shapes, so the game ships with zero image assets. */
+/** All art is generated in code (here and in game/art.ts), so the game ships with zero image assets. */
 export class BootScene extends Phaser.Scene {
   constructor() {
     super('Boot');
@@ -16,97 +16,11 @@ export class BootScene extends Phaser.Scene {
       g.generateTexture(key, w, h);
     };
 
-    // heroes face +x so sprite rotation == aim angle
-    make('hero_lumen', 48, 48, () => {
-      g.fillStyle(HEROES.lumen.color, 0.25).fillCircle(24, 24, 22);
-      g.fillStyle(0x1b3a52).fillCircle(24, 24, 16);
-      g.lineStyle(3, HEROES.lumen.color).strokeCircle(24, 24, 16);
-      g.fillStyle(0xffffff).fillTriangle(34, 18, 46, 24, 34, 30);
-      g.fillStyle(HEROES.lumen.color).fillCircle(24, 24, 6);
-    });
-    make('hero_kael', 48, 48, () => {
-      g.fillStyle(HEROES.kael.color, 0.25).fillCircle(24, 24, 22);
-      g.fillStyle(0x4a1d18).fillCircle(24, 24, 17);
-      g.lineStyle(3, HEROES.kael.color).strokeCircle(24, 24, 17);
-      g.fillStyle(0xffe0d0).fillRect(30, 21, 17, 6);
-      g.fillStyle(HEROES.kael.color).fillRect(28, 17, 4, 14);
-    });
-
-    const e = ENEMIES;
-    make('slime', 32, 32, () => {
-      g.fillStyle(e.slime.color).fillCircle(16, 17, 14);
-      g.fillStyle(0xffffff, 0.35).fillCircle(11, 11, 4);
-      g.fillStyle(0x0b0d16).fillCircle(12, 17, 2.5).fillCircle(20, 17, 2.5);
-    });
-    make('runner', 26, 26, () => {
-      g.fillStyle(e.runner.color).fillTriangle(25, 13, 2, 2, 2, 24);
-      g.fillStyle(0x0b0d16).fillCircle(12, 13, 3);
-    });
-    make('shooter', 32, 32, () => {
-      g.fillStyle(e.shooter.color).fillPoints([new Phaser.Math.Vector2(16, 1), new Phaser.Math.Vector2(31, 16), new Phaser.Math.Vector2(16, 31), new Phaser.Math.Vector2(1, 16)], true);
-      g.fillStyle(0xffffff).fillCircle(16, 16, 5);
-      g.fillStyle(0x2a0b40).fillCircle(18, 16, 2.5);
-    });
-    make('brute', 48, 48, () => {
-      g.fillStyle(0x5a3010).fillRoundedRect(2, 2, 44, 44, 8);
-      g.fillStyle(e.brute.color).fillRoundedRect(6, 6, 36, 36, 6);
-      g.fillStyle(0x0b0d16).fillRect(26, 14, 10, 6).fillRect(26, 28, 10, 6);
-    });
-    make('elite', 64, 64, () => {
-      const pts: Phaser.Math.Vector2[] = [];
-      for (let i = 0; i < 12; i++) {
-        const a = (i / 12) * Math.PI * 2;
-        const rr = i % 2 ? 22 : 31;
-        pts.push(new Phaser.Math.Vector2(32 + Math.cos(a) * rr, 32 + Math.sin(a) * rr));
-      }
-      g.fillStyle(e.elite.color).fillPoints(pts, true);
-      g.fillStyle(0x2b0a26).fillCircle(32, 32, 15);
-      g.fillStyle(0xffffff).fillCircle(37, 32, 5);
-    });
-    make('boss', 120, 120, () => {
-      const pts: Phaser.Math.Vector2[] = [];
-      for (let i = 0; i < 16; i++) {
-        const a = (i / 16) * Math.PI * 2;
-        const rr = i % 2 ? 44 : 58;
-        pts.push(new Phaser.Math.Vector2(60 + Math.cos(a) * rr, 60 + Math.sin(a) * rr));
-      }
-      g.fillStyle(0x5a0a1a).fillPoints(pts, true);
-      g.lineStyle(4, e.boss.color).strokePoints(pts, true);
-      g.fillStyle(e.boss.color).fillCircle(60, 60, 26);
-      g.fillStyle(0xffd0d8).fillCircle(70, 60, 10);
-      g.fillStyle(0x200008).fillCircle(73, 60, 5);
-    });
-
-    make('mini', 20, 20, () => {
-      g.fillStyle(e.mini.color).fillCircle(10, 11, 9);
-      g.fillStyle(0x0b0d16).fillCircle(7, 11, 1.8).fillCircle(13, 11, 1.8);
-    });
-    make('bomber', 30, 30, () => {
-      const pts: Phaser.Math.Vector2[] = [];
-      for (let i = 0; i < 16; i++) {
-        const a = (i / 16) * Math.PI * 2;
-        const rr = i % 2 ? 9 : 14;
-        pts.push(new Phaser.Math.Vector2(15 + Math.cos(a) * rr, 15 + Math.sin(a) * rr));
-      }
-      g.fillStyle(e.bomber.color).fillPoints(pts, true);
-      g.fillStyle(0xffe070).fillCircle(15, 15, 5);
-    });
-    make('shielder', 44, 44, () => {
-      g.fillStyle(0x23324d).fillRoundedRect(4, 4, 36, 36, 6);
-      g.fillStyle(e.shielder.color).fillRoundedRect(8, 8, 28, 28, 5);
-      g.fillStyle(0x0b0d16).fillRect(24, 16, 8, 4).fillRect(24, 24, 8, 4);
-    });
     // shield arc in front (+x), drawn as its own sprite so it can turn independently
     make('shield', 70, 70, () => {
       g.lineStyle(7, 0xbfe0ff, 1).beginPath().arc(35, 35, 30, -1.13, 1.13).strokePath();
       g.lineStyle(2, 0xffffff, 1).beginPath().arc(35, 35, 33, -1.0, 1.0).strokePath();
     });
-    make('priest', 30, 30, () => {
-      g.lineStyle(2, 0xffffff, 0.8).strokeCircle(15, 15, 14);
-      g.fillStyle(e.priest.color).fillCircle(15, 15, 11);
-      g.fillStyle(0xffffff).fillRect(13, 7, 4, 16).fillRect(8, 12, 14, 4);
-    });
-
     make('bolt', 22, 10, () => {
       g.fillStyle(HEROES.lumen.color, 0.4).fillEllipse(11, 5, 22, 10);
       g.fillStyle(0xffffff).fillEllipse(13, 5, 12, 5);
@@ -154,6 +68,12 @@ export class BootScene extends Phaser.Scene {
       g.lineStyle(3, 0xffffff).strokeCircle(20, 20, 15);
       g.fillStyle(0xffffff).fillCircle(20, 20, 5);
     });
+    make('orb', 22, 22, () => {
+      g.fillStyle(0xb06bff, 0.35).fillCircle(11, 11, 11);
+      g.fillStyle(0xd9a8ff).fillCircle(11, 11, 7);
+      g.fillStyle(0xffffff).fillCircle(11, 11, 3);
+    });
+    make('aim', 16, 16, () => g.fillStyle(0xffffff, 0.8).fillTriangle(2, 2, 15, 8, 2, 14));
     make('dot', 8, 8, () => g.fillStyle(0xffffff).fillCircle(4, 4, 4));
     make('heart', 20, 20, () => {
       g.fillStyle(0x7bff9e, 0.3).fillCircle(10, 10, 10);
@@ -161,6 +81,7 @@ export class BootScene extends Phaser.Scene {
     });
     make('ring', 128, 128, () => g.lineStyle(6, 0xffffff).strokeCircle(64, 64, 60));
     g.destroy();
+    buildArt(this);
 
     this.scene.start('Menu');
   }

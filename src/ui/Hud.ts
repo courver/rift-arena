@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
-import { DEBUG, FONT, H, TOTAL_WAVES, W, hex } from '../config';
+import { DEBUG, FONT, H, TOTAL_WAVES, TOUCH, W, hex } from '../config';
 import type { Slot } from '../data/heroes';
+import { BOSS_PHASES } from '../data/enemies';
 import type { Enemy } from '../game/Enemy';
 import { defOf } from '../game/cards';
 import type { GameScene } from '../scenes/GameScene';
@@ -40,7 +41,8 @@ export class Hud {
     this.autoText = s.add.text(W - 160, H - 30, '', st(13, '#8890a8')).setOrigin(1, 0).setDepth(61);
     this.bossName = s.add.text(W / 2, 44, '', st(14, '#ff8899')).setOrigin(0.5, 0).setDepth(61).setVisible(false);
     if (DEBUG) this.debugText = s.add.text(50, H - 30, '', st(12, '#7bff9e')).setDepth(61);
-    s.add.text(50, H - 30, 'ESC 暂停 · M 静音', st(13, '#8890a8')).setDepth(61).setVisible(!DEBUG);
+    s.add.text(50, H - 30, 'ESC 暂停 · M 静音', st(13, '#8890a8')).setDepth(61).setVisible(!DEBUG && !TOUCH);
+    this.autoText.setVisible(!TOUCH);
     this.setMuted(isMuted());
     this.setAutoFire(s.autoFire);
     this.shownHp = s.player.hp;
@@ -58,8 +60,9 @@ export class Hud {
       const eq = s.player.loadout[slot];
       const def = defOf(slot, eq.id);
       const color = slot === 'weapon' ? (def as { color: number }).color : slot === 'R' ? 0xffd34a : s.player.hero.color;
-      const x = W / 2 + (i - 1.5) * (SLOT + 12);
-      const y = H - 60;
+      // phones: compact row under the HP bar (the right side holds the skill buttons)
+      const x = TOUCH ? 74 + i * 50 : W / 2 + (i - 1.5) * (SLOT + 12);
+      const y = TOUCH ? 72 : H - 60;
       const bg = s.add.rectangle(0, 0, SLOT, SLOT, 0x1a1f33, 0.85).setStrokeStyle(2, color);
       const icon = s.add.text(0, -6, def.icon, { fontFamily: FONT, fontSize: '24px', color: hex(color) }).setOrigin(0.5);
       const keyLbl = s.add.text(-SLOT / 2 + 4, -SLOT / 2 + 2, KEY_LABEL[slot], st(11)).setOrigin(0, 0);
@@ -68,7 +71,7 @@ export class Hud {
       const shade = s.add.rectangle(0, SLOT / 2, SLOT, SLOT, 0x000000, 0.65).setOrigin(0.5, 1);
       shade.scaleY = 0;
       const cdText = s.add.text(0, -6, '', st(18)).setOrigin(0.5);
-      const box = s.add.container(x, y, [bg, icon, name, shade, keyLbl, lv, cdText]).setDepth(61);
+      const box = s.add.container(x, y, [bg, icon, name, shade, keyLbl, lv, cdText]).setDepth(61).setScale(TOUCH ? 0.75 : 1);
       this.slots.push({ slot, box, shade, cdText });
     });
   }
@@ -91,7 +94,7 @@ export class Hud {
 
   /** "New enemy" card on the left, so players learn each type the first time it shows up. */
   hint(name: string, desc: string, color: number) {
-    const y = 70 + this.hintY * 52;
+    const y = (TOUCH ? 130 : 70) + this.hintY * 52;
     this.hintY = (this.hintY + 1) % 3;
     const bg = this.s.add.rectangle(0, 0, 330, 46, 0x0b0d16, 0.85).setStrokeStyle(2, color).setOrigin(0, 0.5);
     const t1 = this.s.add.text(10, -11, `新敌人 · ${name}`, { fontFamily: FONT, fontSize: '14px', fontStyle: 'bold', color: hex(color) }).setOrigin(0, 0.5);
@@ -143,7 +146,8 @@ export class Hud {
       const w = 520;
       g.fillStyle(0x000000, 0.7).fillRect(W / 2 - w / 2 - 2, 34, w + 4, 12);
       g.fillStyle(0xff3355).fillRect(W / 2 - w / 2, 36, w * Math.max(0, e.hp / e.maxHp), 8);
-      g.fillStyle(0xffffff, 0.6).fillRect(W / 2 - w / 2 + w * 0.33, 34, 2, 12).fillRect(W / 2 - w / 2 + w * 0.66, 34, 2, 12);
+      g.fillStyle(0xffffff, 0.6);
+      for (const m of BOSS_PHASES[e.type] ?? []) g.fillRect(W / 2 - w / 2 + w * m, 34, 2, 12);
     }
 
     for (const v of this.slots) {

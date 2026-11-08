@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
-import { AFFIXES, Affix, ENEMIES, EnemyDef, EnemyType, hpScale } from '../data/enemies';
+import { AFFIXES, Affix, BOSS_PHASES, ENEMIES, EnemyDef, EnemyType, hpScale, isBossType } from '../data/enemies';
+import { ART_SCALE } from './art';
 import { FONT } from '../config';
 import type { GameScene } from '../scenes/GameScene';
 import { sfx } from '../sfx';
@@ -7,7 +8,7 @@ import { sfx } from '../sfx';
 type State = 'move' | 'windup' | 'charge' | 'recover' | 'spiral' | 'aim' | 'arm';
 
 const KB_TAKEN: Record<EnemyType, number> = {
-  slime: 1, mini: 1.4, runner: 1.3, shooter: 1, bomber: 1.1, shielder: 0.3, priest: 1, brute: 0.45, elite: 0.25, boss: 0,
+  slime: 1, mini: 1.4, runner: 1.3, shooter: 1, bomber: 1.1, shielder: 0.3, priest: 1, brute: 0.45, elite: 0.25, boss: 0, colossus: 0, weaver: 0,
 };
 
 /** Half-angle of the shielder's frontal shield. */
@@ -54,6 +55,13 @@ export class Enemy {
   spiralT = 8;
   spiralAngle = 0;
   phase = 1;
+  readonly isBoss: boolean;
+  /** animation clock, randomised so crowds don't bob in sync */
+  private animT = Math.random() * 10;
+  private patIdx = 0;
+  private teleT = 3;
+  private beamT = 5;
+  private orbT = 4;
 
   constructor(scene: GameScene, type: EnemyType, x: number, y: number, wave: number, affix: Affix | null = null) {
     this.type = type;
@@ -62,13 +70,14 @@ export class Enemy {
     this.y = y;
     this.r = this.def.r;
     this.speed = this.def.speed;
-    this.maxHp = this.hp = Math.round(this.def.hp * (type === 'boss' ? 1 : hpScale(wave)));
-    this.img = scene.add.image(x, y, type).setDepth(type === 'boss' ? 6 : 5);
+    this.isBoss = isBossType(type);
+    this.maxHp = this.hp = Math.round(this.def.hp * (this.isBoss ? 1 : hpScale(wave)));
+    this.img = scene.add.image(x, y, type).setDepth(this.isBoss ? 6 : 5);
     this.fireT = Phaser.Math.FloatBetween(1, 2.2);
     this.chargeT = Phaser.Math.FloatBetween(1.2, 3);
     this.facing = Math.atan2(scene.player.y - y, scene.player.x - x);
     this.img.setScale(0);
-    scene.tweens.add({ targets: this.img, scale: 1, duration: 220, ease: 'Back.easeOut' });
+    scene.tweens.add({ targets: this.img, scale: ART_SCALE, duration: 220, ease: 'Back.easeOut' });
 
     if (type === 'shielder') {
       this.extra.push(scene.add.image(x, y, 'shield').setDepth(6));
@@ -92,7 +101,7 @@ export class Enemy {
 
   get speedMul() {
     if (this.freezeT > 0) return 0;
-    if (this.slowT > 0) return this.type === 'boss' ? 0.75 : 0.5;
+    if (this.slowT > 0) return this.isBoss ? 0.75 : 0.5;
     return 1;
   }
 
@@ -208,6 +217,18 @@ export class Enemy {
         break;
       }
 
+      case 'colossus':
+        if (this.updateBossPhase(s) || frozen) break;
+        if (this.state === 'move') chase(this.phase === 2 ? 1.3 : 1);
+        this.updateColossus(s, dt);
+        break;
+
+      case 'weaver':
+        if (this.updateBossPhase(s) || frozen) break;
+        if (this.state === 'move') kite(260, 380);
+        this.updateWeaver(s, dt, toP);
+        break;
+
       case 'brute':
       case 'elite':
       case 'boss':
@@ -222,7 +243,7 @@ export class Enemy {
         break;
     }
 
-    if (this.state === 'windup' || this.state === 'aim' || this.state === 'arm') {
+    if (this.state === 'windup' || this.state === 'aim' || this.state === 'arm' || (this.state === 'recover' && this.isBoss)) {
       vx = 0;
       vy = 0;
     }
@@ -232,12 +253,23 @@ export class Enemy {
     this.kbx *= decay;
     this.kby *= decay;
     s.clampToArena(this);
+    this.animT += dt;
     this.sync();
   }
 
   sync() {
-    this.img.setPosition(this.x, this.y);
-    if (this.type !== 'slime' && this.type !== 'mini' && this.type !== 'priest') this.img.setRotation(this.angle);
+    // 3/4-view art: face the target by flipping, bob while alive, lean into charges
+    const t = this.animT;
+    const jelly = this.type === 'slime' || this.type === 'mini';
+    const bob = jelly ? 0 : Math.sin(t * (this.isBoss ? 3 : 8)) * (this.isBoss ? 3 : 1.6);
+    this.img.setPosition(this.x, this.y + bob);
+    if (jelly) {
+      const q = Math.sin(t * 7) * 0.08;
+      this.img.setScale(ART_SCALE * (1 + q), ART_SCALE * (1 - q));
+    }
+    this.img.setFlipX(Math.cos(this.angle) < 0);
+    const leaning = this.state === 'charge' && !this.isBoss;
+    this.img.setRotation(leaning ? (Math.cos(this.angle) < 0 ? -0.25 : 0.25) : 0);
     for (const o of this.extra) {
       const g = o as Phaser.GameObjects.Image;
       if (o.type === 'Text') g.setPosition(this.x, this.y - this.r - 20);
@@ -249,7 +281,7 @@ export class Enemy {
     else if (this.slowT > 0) this.img.setTint(0xaee6ff);
     else if (this.state === 'windup' || this.state === 'aim') this.img.setTint(0xff8080);
     else if (this.burnT > 0) this.img.setTint(0xffb080);
-    else if ((this.type === 'boss' && this.phase === 3) || this.enraged) this.img.setTint(0xff9090);
+    else if ((this.isBoss && this.phase === BOSS_PHASES[this.type]!.length + 1) || this.enraged) this.img.setTint(0xff9090);
     else this.img.clearTint();
   }
 
@@ -260,14 +292,7 @@ export class Enemy {
     this.chargeT -= dt * rage;
     const boss = this.type === 'boss';
 
-    if (boss) {
-      const frac = this.hp / this.maxHp;
-      const ph = frac > 0.66 ? 1 : frac > 0.33 ? 2 : 3;
-      if (ph !== this.phase) {
-        this.phase = ph;
-        s.onBossPhase(this, ph);
-      }
-    }
+    if (boss) this.updateBossPhase(s);
 
     if (this.state === 'windup' && this.stateT <= 0) {
       this.state = 'charge';
@@ -326,6 +351,117 @@ export class Enemy {
         const pool: EnemyType[] = this.phase === 3 ? ['bomber', 'bomber', 'runner', 'shielder'] : ['slime', 'runner', 'bomber', 'slime'];
         for (const t of pool) s.queueSpawn(t, this.x + Phaser.Math.Between(-150, 150), this.y + Phaser.Math.Between(-150, 150));
       }
+    }
+  }
+
+  /** Advances the boss phase from its hp; returns true on the frame it changes. */
+  private updateBossPhase(s: GameScene) {
+    const marks = BOSS_PHASES[this.type]!;
+    const frac = this.hp / this.maxHp;
+    const ph = 1 + marks.filter((m) => frac <= m).length;
+    if (ph === this.phase) return false;
+    this.phase = ph;
+    s.onBossPhase(this, ph);
+    return true;
+  }
+
+  /** 熔核巨像: slow chaser that alternates slam chains, gapped quake rings and rock rain. */
+  private updateColossus(s: GameScene, dt: number) {
+    if (this.state === 'recover' && this.stateT <= 0) this.state = 'move';
+    if (this.state !== 'move') return;
+    this.fireT -= dt;
+    if (this.fireT > 0) return;
+    const p2 = this.phase === 2;
+    this.fireT = p2 ? 2.6 : 3.4;
+    this.state = 'recover';
+    this.stateT = 0.9;
+    const pat = this.patIdx++ % 3;
+    if (pat === 0) {
+      const n = p2 ? 5 : 3;
+      for (let i = 0; i < n; i++) {
+        s.time.delayedCall(i * (p2 ? 320 : 450), () => {
+          if (this.dead) return;
+          const p = s.player;
+          s.delayedHit(p.x, p.y, 90, 900, 20, 'colossus-slam', 0xff8a3a);
+        });
+      }
+    } else if (pat === 1) {
+      // wind-up glow first, so melee players get a beat to back off
+      s.fx.telegraphCircle(this.x, this.y, this.r * 2.2, 500, 0xff8a3a);
+      for (let k = 0; k < (p2 ? 2 : 1); k++) {
+        s.time.delayedCall(500 + k * 650, () => {
+          if (this.dead) return;
+          // a ring with one gap: find the gap and walk through it
+          const gap = Math.random() * Math.PI * 2;
+          for (let i = 0; i < 40; i++) {
+            const a = (i / 40) * Math.PI * 2;
+            if (Math.abs(Phaser.Math.Angle.Wrap(a - gap)) < 0.42) continue;
+            s.spawnEBullet(this.x, this.y, a, 165, 14);
+          }
+          s.fx.ring(this.x, this.y, this.r * 2, 0xff8a3a, 300, 0.3);
+          s.shake(150, 0.006);
+          sfx('boom');
+        });
+      }
+    } else {
+      const p = s.player;
+      for (let i = 0; i < (p2 ? 8 : 5); i++) {
+        const x = p.x + Phaser.Math.Between(-170, 170);
+        const y = p.y + Phaser.Math.Between(-170, 170);
+        s.time.delayedCall(i * 90, () => { if (!this.dead) s.delayedHit(x, y, 55, 1000, 18, 'colossus-rock', 0xffb070); });
+      }
+    }
+  }
+
+  /** 虚空织影: kites, blinks around the arena, fires fans and cross-shaped beams. */
+  private updateWeaver(s: GameScene, dt: number, toP: number) {
+    if (this.state === 'aim' && this.stateT <= 0) this.state = 'move';
+    if (this.state !== 'move') return;
+    const p2 = this.phase === 2;
+    this.teleT -= dt;
+    this.beamT -= dt;
+    this.orbT -= dt;
+    this.summonT -= dt;
+
+    if (this.beamT <= 0) {
+      this.beamT = p2 ? 5.5 : 7;
+      this.state = 'aim';
+      this.stateT = 1.1;
+      const n = p2 ? 6 : 4;
+      for (let k = 0; k < n; k++) s.beamHit(this.x, this.y, toP + (k * Math.PI * 2) / n, 1100, 34, 950, 24, 'weaver-beam');
+      return;
+    }
+    if (this.teleT <= 0) {
+      this.teleT = p2 ? 3.2 : 4.2;
+      this.state = 'aim';
+      this.stateT = 0.55;
+      s.fx.burst(this.x, this.y, this.def.color, 18, 220);
+      s.tweens.add({ targets: this.img, alpha: 0, duration: 200, yoyo: true });
+      s.time.delayedCall(250, () => {
+        if (this.dead) return;
+        const p = s.player;
+        for (let tries = 0; tries < 20; tries++) {
+          const a = Math.random() * Math.PI * 2;
+          const d = Phaser.Math.Between(280, 420);
+          this.x = p.x + Math.cos(a) * d;
+          this.y = p.y + Math.sin(a) * d;
+          s.clampToArena(this);
+          if (Math.hypot(this.x - p.x, this.y - p.y) > 240) break;
+        }
+        s.fx.burst(this.x, this.y, this.def.color, 18, 220);
+        const aim = Math.atan2(p.y - this.y, p.x - this.x);
+        for (let i = 0; i < 9; i++) s.spawnEBullet(this.x, this.y, aim + (i - 4) * 0.14, 230, 11);
+        sfx('blink');
+      });
+      return;
+    }
+    if (p2 && this.orbT <= 0) {
+      this.orbT = 6;
+      for (let i = 0; i < 3; i++) s.spawnEBullet(this.x, this.y, toP + (i - 1) * 0.8, 140, 14, 1.8);
+    }
+    if (p2 && this.summonT <= 0) {
+      this.summonT = 10;
+      for (let i = 0; i < 2; i++) s.queueSpawn('shooter', this.x + Phaser.Math.Between(-120, 120), this.y + Phaser.Math.Between(-120, 120));
     }
   }
 
