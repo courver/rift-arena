@@ -1,5 +1,7 @@
 # 裂隙竞技场 · Rift Arena
 
+**▶ 在线试玩：https://courver.github.io/rift-arena/**（电脑浏览器，键盘 + 鼠标）
+
 一个在浏览器里玩的**英雄肉鸽竞技场**原型：选一个英雄，用 3 个技能加 1 个大招撑过 10 波敌人，每波结束三选一强化来组构筑，最后击败三阶段 Boss「裂隙之主」。
 
 整个项目由我主导、用 AI 编程助手（Claude Code）从零完成，范围包括玩法设计、数值、代码、美术、音效和自动化平衡测试。没有用任何外部美术或音频素材：图形全部由代码生成，音效全部由 WebAudio 合成，可以公开展示。
@@ -39,7 +41,8 @@
 ## 技术栈
 
 - **TypeScript + Phaser 3.90**（只用了渲染、输入、补间、粒子和场景管理；移动、碰撞、AI 都是自己写的，没有用物理引擎）
-- **Vite** 构建，`base: './'`，产物是纯静态文件，可以直接放到 GitHub Pages / itch.io
+- **Vite** 构建，`base: './'`，产物是纯静态文件
+- **GitHub Actions** 自动部署：每次推送到 `main` 都会构建并发布到 GitHub Pages（`.github/workflows/deploy.yml`）
 - 零外部素材：`BootScene` 用 Graphics 画出全部贴图，`sfx.ts` 用 WebAudio 振荡器和噪声合成全部音效
 
 ```
