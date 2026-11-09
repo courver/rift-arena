@@ -74,6 +74,17 @@ export class BootScene extends Phaser.Scene {
       g.fillStyle(0xffffff).fillCircle(11, 11, 3);
     });
     make('aim', 16, 16, () => g.fillStyle(0xffffff, 0.8).fillTriangle(2, 2, 15, 8, 2, 14));
+    make('dart', 18, 6, () => {
+      g.fillStyle(0x8aff5a, 0.45).fillEllipse(9, 3, 18, 6);
+      g.fillStyle(0xe8ffd0).fillTriangle(6, 1, 18, 3, 6, 5);
+    });
+    make('cloud', 128, 128, () => {
+      for (let i = 0; i < 9; i++) {
+        const a = (i / 9) * Math.PI * 2;
+        g.fillStyle(0xffffff, 0.18).fillCircle(64 + Math.cos(a) * 34, 64 + Math.sin(a) * 34, 30);
+      }
+      g.fillStyle(0xffffff, 0.22).fillCircle(64, 64, 40);
+    });
     make('dot', 8, 8, () => g.fillStyle(0xffffff).fillCircle(4, 4, 4));
     make('heart', 20, 20, () => {
       g.fillStyle(0x7bff9e, 0.3).fillCircle(10, 10, 10);

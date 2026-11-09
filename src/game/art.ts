@@ -179,6 +179,18 @@ const WEAPON_ART: Record<string, [number, number, (c: C) => void]> = {
     }
     circ(c, 13, 13, 3, '#ffffff', INK, 1.2);
   }],
+  railgun: [46, 16, (c) => {
+    c.beginPath(); c.roundRect(1, 4, 12, 9, 3); begin(c, '#3a4256', INK, 1.2);
+    c.beginPath(); c.roundRect(11, 5, 32, 6, 2); begin(c, lgrad(c, 0, 5, 0, 11, '#d8e8ff', '#5a6a88'), INK, 1.2);
+    for (let x = 16; x <= 34; x += 6) line(c, [x, 3, x, 13], '#8fd0ff', 1.6);
+    glow(c, 44, 8, 6, 'rgba(143,208,255,0.9)');
+  }],
+  venom: [38, 14, (c) => {
+    c.beginPath(); c.roundRect(1, 4, 10, 7, 3); begin(c, '#3a5a2a', INK, 1.2);
+    c.beginPath(); c.roundRect(9, 5, 24, 4, 2); begin(c, '#6a8a4a', INK, 1.2);
+    poly(c, [32, 3, 37, 7, 32, 11], '#c8ff8a', INK, 1);
+    glow(c, 7, 7, 5, 'rgba(138,255,90,0.8)');
+  }],
   flame: [40, 18, (c) => {
     c.beginPath(); c.roundRect(1, 3, 12, 12, 4); begin(c, lgrad(c, 0, 3, 0, 15, '#ff9a3a', '#a8401a'), INK, 1.4);
     c.beginPath(); c.roundRect(12, 6, 18, 6, 2); begin(c, '#6a6f80', INK, 1.2);

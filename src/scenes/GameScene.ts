@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { ARENA, BOT, DEBUG, H, SPEED, TOTAL_WAVES, TOUCH, W } from '../config';
+import { diff, diffId } from '../data/difficulty';
 import { TouchControls } from '../ui/TouchControls';
 import { Bot } from '../game/bot';
 import { AFFIXES, Affix, BOSS_PHASES, ENEMIES, ENEMY_DMG, EnemyType, isBossType } from '../data/enemies';
@@ -13,6 +14,7 @@ import { Player } from '../game/Player';
 import { Effect, SKILLS, updatePlayerSkills } from '../game/skills';
 import { SYNERGIES } from '../game/synergy';
 import { WEAPONS } from '../game/weapons';
+import { RELIC_BY_ID } from '../game/relics';
 import { Hud } from '../ui/Hud';
 import { setMusicMood, sfx, toggleMute, unlockAudio } from '../sfx';
 import { saveSettings, settings } from '../settings';
@@ -35,13 +37,16 @@ interface PBullet {
   explode?: { r: number; dmg: number };
   /** slow applied on hit (seconds) */
   chill: number;
+  /** poison stacks applied on hit */
+  poison: number;
+  forceCrit: boolean;
 }
 
 export interface PBulletOpts {
   x: number; y: number; angle: number; speed: number; dmg: number; pierce: number; tex: string; life: number;
   r?: number; kb?: number; scale?: number; primary?: boolean; quiet?: boolean; grow?: boolean;
   burn?: { dps: number; t: number }; boomerang?: number;
-  tint?: number; explode?: { r: number; dmg: number }; chill?: number;
+  tint?: number; explode?: { r: number; dmg: number }; chill?: number; poison?: number;
 }
 
 interface EBullet {
@@ -79,6 +84,8 @@ export interface DamageOpts {
   quiet?: boolean;
   /** damage over time: no crit, orange numbers */
   dot?: boolean;
+  poison?: boolean;
+  forceCrit?: boolean;
 }
 
 const AUTO_KEY = 'rift-autofire';
@@ -217,7 +224,10 @@ export class GameScene extends Phaser.Scene {
     this.spawnQueue = [];
     this.bossDefeated = false;
     for (const grp of WAVES[n - 1]) {
-      for (let i = 0; i < grp.count; i++) this.spawnQueue.push({ at: grp.delay + i * grp.interval, type: grp.type });
+      // harder modes add enemies to each group, packed into the same time window
+      const n = isBossType(grp.type) || grp.type === 'elite' ? grp.count : Math.round(grp.count * diff().count);
+      const step = grp.count > 1 ? (grp.interval * (grp.count - 1)) / Math.max(1, n - 1) : grp.interval;
+      for (let i = 0; i < n; i++) this.spawnQueue.push({ at: grp.delay + i * step, type: grp.type });
     }
     this.spawnQueue.sort((a, b) => a.at - b.at);
     const boss = WAVES[n - 1].find((g) => isBossType(g.type));
@@ -257,8 +267,8 @@ export class GameScene extends Phaser.Scene {
     this.time.delayedCall(ms, () => {
       this.pendingSpawns--;
       if (this.over || (this.bossDefeated && !isBossType(type))) return;
-      const affix = type === 'elite' ? (Phaser.Utils.Array.GetRandom(Object.keys(AFFIXES)) as Affix) : null;
-      const e = new Enemy(this, type, sx, sy, this.wave, affix);
+      const affixes = type === 'elite' ? (Phaser.Utils.Array.Shuffle(Object.keys(AFFIXES)) as Affix[]).slice(0, diff().affixes) : [];
+      const e = new Enemy(this, type, sx, sy, this.wave, affixes);
       this.enemies.push(e);
       if (!this.seen.has(type)) {
         this.seen.add(type);
@@ -270,7 +280,7 @@ export class GameScene extends Phaser.Scene {
         this.shake(400, 0.012);
         this.hud.showBoss(e);
       } else if (type === 'elite') {
-        this.hud.hint(`精英 · ${AFFIXES[affix!]}`, AFFIX_HINT[affix!], ENEMIES.elite.color);
+        this.hud.hint(`精英 · ${affixes.map((a) => AFFIXES[a]).join(' + ')}`, affixes.map((a) => AFFIX_HINT[a]).join('；'), ENEMIES.elite.color);
       }
     });
   }
@@ -296,17 +306,18 @@ export class GameScene extends Phaser.Scene {
     this.intermission = true;
     const p = this.player;
     if (heal) p.heal(Math.round(p.stats.maxHp * 0.2));
+    if (heal && p.relic('bounty')) this.rerolls++;
     this.eBullets.forEach((b) => b.img.destroy());
     this.eBullets = [];
     this.scene.pause();
     this.scene.launch('Upgrade', {
       wave: this.wave,
       player: p,
-      cards: rollCards(p),
+      cards: rollCards(p, !heal),
       rerolls: this.rerolls,
       reroll: () => {
         this.rerolls--;
-        return rollCards(p);
+        return rollCards(p, !heal);
       },
       bonus: this.bonusPick,
       onPick: (c: Card) => {
@@ -346,6 +357,7 @@ export class GameScene extends Phaser.Scene {
       hero: this.heroId, win, wave: this.wave, time: Math.round(this.run.time), hp: Math.round(this.player.hp), kills: this.run.kills,
       by: win ? '' : this.lastHitBy, taken: this.run.dmgTaken,
       loadout: `${lo.weapon.id}${lo.weapon.lv} ${lo.Q.id}${lo.Q.lv} ${lo.E.id}${lo.E.lv} ${lo.R.id}${lo.R.lv}`,
+      diff: diffId(), relics: this.player.relics.join(','),
       picks: this.run.picks.join(','),
     };
     const w = window as unknown as { __runs?: object[] };
@@ -356,7 +368,7 @@ export class GameScene extends Phaser.Scene {
       this.player.hide();
     }
     this.time.delayedCall(win ? 600 : 1200, () => {
-      this.scene.start('End', { win, hero: this.heroId, wave: this.wave, run: this.run, mods: this.player.mods, loadout: this.player.loadout, by: this.lastHitBy });
+      this.scene.start('End', { win, hero: this.heroId, wave: this.wave, run: this.run, mods: this.player.mods, loadout: this.player.loadout, by: this.lastHitBy, relics: this.player.relics });
     });
   }
 
@@ -369,7 +381,8 @@ export class GameScene extends Phaser.Scene {
       img, x: o.x, y: o.y, vx: Math.cos(o.angle) * o.speed, vy: Math.sin(o.angle) * o.speed,
       dmg: o.dmg, r: o.r ?? 7, pierce: o.pierce, life: o.life, maxLife: o.life, age: 0, kb: o.kb ?? 90, hit: new Set(),
       primary: o.primary ?? true, quiet: o.quiet ?? false, grow: o.grow ?? false, burn: o.burn,
-      boomerang: o.boomerang ?? 0, returning: false, explode: o.explode, chill: o.chill ?? 0,
+      boomerang: o.boomerang ?? 0, returning: false, explode: o.explode, chill: o.chill ?? 0, poison: o.poison ?? 0,
+      forceCrit: (o.primary ?? true) && this.player.critNow,
     });
   }
 
@@ -465,9 +478,11 @@ export class GameScene extends Phaser.Scene {
     if (e.dead) return false;
     const p = this.player;
     const blocked = !o.aoe && !!o.from && this.shieldBlocks(e, o.from.x, o.from.y);
-    const crit = !o.dot && Math.random() < p.stats.critChance;
-    let dmg = base * p.stats.dmgMult * (crit ? p.stats.critMult : 1);
+    const crit = !o.dot && (o.forceCrit || (o.primary && p.critNow) || Math.random() < p.stats.critChance);
+    let dmg = base * p.stats.dmgMult * (crit ? p.stats.critMult + (p.critBonus && (o.forceCrit || p.critNow) ? 0.5 : 0) : 1);
     if (p.desperate) dmg *= 1.4;
+    if (p.relic('hunterMark') && (e.isBoss || e.type === 'elite')) dmg *= 1.35;
+    if (p.overT > 0) dmg *= 1.3;
     if (this.timeStopT > 0 && this.timeStopBonus) dmg *= 1.3;
     if (blocked) dmg *= 0.2;
     dmg = Math.max(1, Math.round(dmg * Phaser.Math.FloatBetween(0.92, 1.08)));
@@ -492,7 +507,7 @@ export class GameScene extends Phaser.Scene {
       p.cd.E = Math.max(0, p.cd.E - 100);
     }
     if (!o.quiet) {
-      this.fx.number(e.x, e.y - e.r, dmg, crit, blocked ? '#8fb8ff' : o.dot ? '#ffa060' : '#ffffff');
+      this.fx.number(e.x, e.y - e.r, dmg, crit, blocked ? '#8fb8ff' : o.poison ? '#a8ff80' : o.dot ? '#ffa060' : '#ffffff');
       if (!o.dot) sfx(blocked ? 'block' : crit ? 'crit' : 'hit');
     }
     if (o.big || (crit && dmg > 60)) this.hitstop = Math.max(this.hitstop, 0.045);
@@ -523,10 +538,11 @@ export class GameScene extends Phaser.Scene {
         this.toAdd.push(m);
       }
     }
-    if (e.affix === 'splitting') {
+    if (e.affixes.includes('splitting')) {
       for (let k = 0; k < 3; k++) this.toAdd.push(new Enemy(this, 'runner', e.x + Phaser.Math.Between(-30, 30), e.y + Phaser.Math.Between(-30, 30), this.wave));
     }
     if (e.type === 'bomber' && !suicide) this.bomberBlast(e, false);
+    if (!suicide) this.onKillRelics(e);
 
     if (!suicide && Math.random() < e.def.drop) {
       this.pickups.push({ img: this.add.image(e.x, e.y, 'heart').setDepth(4), x: e.x, y: e.y, life: 12 });
@@ -538,6 +554,8 @@ export class GameScene extends Phaser.Scene {
       setMusicMood('battle');
       if (this.wave < TOTAL_WAVES) {
         this.bonusPick = true;
+        this.player.cores++;
+        this.time.delayedCall(1500, () => this.hud.banner('获得首领核心 ◈（究极进化所需）', '#ffe066'));
         this.hud.banner(`击败 ${e.def.name}！额外强化 +1`, '#ffd34a');
       }
       this.hud.hideBoss();
@@ -545,6 +563,33 @@ export class GameScene extends Phaser.Scene {
       [...this.enemies, ...this.toAdd].forEach((o) => { if (!o.dead) { this.fx.burst(o.x, o.y, o.def.color, 8); o.destroy(); } });
       this.toAdd = [];
       this.spawnQueue = [];
+    }
+  }
+
+  /** Poison: stacks deal damage over time; refreshed by every application. */
+  addPoison(e: Enemy, stacks: number) {
+    const cap = this.player.loadout.weapon.id === 'plagueLord' ? 20 : 12;
+    e.poison = Math.min(cap, e.poison + stacks);
+    e.poisonT = 4;
+  }
+
+  private onKillRelics(e: Enemy) {
+    const p = this.player;
+    if (p.relic('vampFang')) p.heal(2);
+    if (p.relic('hourglass')) {
+      p.cd.Q = Math.max(0, p.cd.Q - 200);
+      p.cd.E = Math.max(0, p.cd.E - 200);
+    }
+    if (p.relic('chainReaction') && Math.random() < 0.3) {
+      this.time.delayedCall(80, () => {
+        this.fx.ring(e.x, e.y, 70, 0xff9a3a, 220, 0.4);
+        for (const o of this.enemiesInRadius(e.x, e.y, 70)) this.damage(o, 22, { aoe: true, quiet: true, kbAngle: Math.atan2(o.y - e.y, o.x - e.x), kb: 120 });
+      });
+    }
+    // 瘟疫 / 万毒之源: poison spreads from the dead
+    if (e.poison > 0 && (p.syn('plague') || p.loadout.weapon.id === 'plagueLord')) {
+      this.fx.ring(e.x, e.y, 90, 0x8aff5a, 260, 0.3);
+      for (const o of this.enemiesInRadius(e.x, e.y, 90)) this.addPoison(o, Math.ceil(e.poison / 2));
     }
   }
 
@@ -582,10 +627,15 @@ export class GameScene extends Phaser.Scene {
     this.lastHitBy = src;
     const p = this.player;
     if (p.iframes > 0 || this.over || this.godMode) return;
+    if (p.relic('phantom') && Math.random() < 0.15) {
+      p.iframes = 0.3;
+      this.fx.text(p.x, p.y - 10, '闪避', '#c8cde0');
+      return;
+    }
     let mult = 1 - Math.min(0.6, p.stats.armor);
     if (p.desperate) mult *= 0.85;
     if (p.rageT > 0 && p.rageArmor) mult *= 0.7;
-    const dmg = Math.max(1, Math.round(amount * mult * ENEMY_DMG));
+    const dmg = Math.max(1, Math.round(amount * mult * ENEMY_DMG * diff().dmg));
     p.hp -= dmg;
     p.iframes = 0.6;
     this.run.dmgTaken += dmg;
@@ -594,6 +644,15 @@ export class GameScene extends Phaser.Scene {
     this.tweens.add({ targets: this.hurtOverlay, alpha: 0, duration: 250 });
     this.fx.number(p.x, p.y - 20, dmg, false, '#ff7070');
     sfx('hurt');
+    if (p.relic('thorns')) {
+      this.fx.ring(p.x, p.y, 120, 0x8aff5a, 220, 0.3);
+      for (const o of this.enemiesInRadius(p.x, p.y, 120)) this.damage(o, 40, { aoe: true, kbAngle: Math.atan2(o.y - p.y, o.x - p.x), kb: 320 });
+    }
+    if (p.relic('frostHeart') && p.frostHeartCd <= 0) {
+      p.frostHeartCd = 6;
+      this.fx.ring(p.x, p.y, 160, 0x9be8ff, 300, 0.3);
+      for (const o of this.enemiesInRadius(p.x, p.y, 160)) if (!o.isBoss) o.freezeT = 1;
+    }
     if (p.hp <= 0) {
       p.hp = 0;
       this.endRun(false);
@@ -633,6 +692,7 @@ export class GameScene extends Phaser.Scene {
       p.charges[slot]--;
     }
     SKILLS[eq.id].cast(this, p, eq.lv);
+    if (slot === 'R' && p.relic('overcharge')) p.overT = 4;
     this.hud.pulse(slot);
   }
 
@@ -740,6 +800,8 @@ export class GameScene extends Phaser.Scene {
     p.iframes -= dt;
     p.rageT -= dt;
     p.tickCharges(dt * 1000);
+    p.overT -= dt;
+    p.frostHeartCd -= dt;
     if (p.stats.regen) p.heal(p.stats.regen * dt);
 
     p.moving = false;
@@ -759,8 +821,13 @@ export class GameScene extends Phaser.Scene {
     p.atkTimer -= dt;
     const firing = this.bot ? this.bot.fire : this.touch ? this.enemies.length > 0 : ptr.leftButtonDown() || (this.autoFire && this.enemies.length > 0);
     if (firing && p.atkTimer <= 0 && p.dashT <= 0) {
-      p.atkTimer = 1 / p.atkRate;
+      p.atkTimer = 1 / p.atkRate / (this.timeStopT > 0 && p.syn('railTime') ? 3 : 1);
+      p.critNow = p.critShots > 0;
       p.weapon.fire(this, p, p.loadout.weapon.lv);
+      p.twinCount++;
+      if (p.relic('twinFang') && p.twinCount % 4 === 0) p.weapon.fire(this, p, p.loadout.weapon.lv);
+      if (p.critNow) p.critShots--;
+      p.critNow = false;
       if (p.loadout.weapon.id === 'slash') p.swingT = 0.15;
       else p.recoilT = 0.06;
     }
@@ -788,6 +855,15 @@ export class GameScene extends Phaser.Scene {
 
   private updateBurns(dt: number) {
     for (const e of this.enemies) {
+      if (!e.dead && e.poison > 0) {
+        e.poisonT -= dt;
+        e.poisonTick -= dt;
+        if (e.poisonTick <= 0) {
+          e.poisonTick = 0.5;
+          this.damage(e, e.poison * 2, { dot: true, aoe: true, poison: true });
+        }
+        if (e.poisonT <= 0) e.poison = 0;
+      }
       if (e.dead || e.burnT <= 0) continue;
       e.burnT -= dt;
       e.burnTick -= dt;
@@ -873,7 +949,8 @@ export class GameScene extends Phaser.Scene {
           continue;
         }
         b.pierce--;
-        this.damage(e, b.dmg, { kbAngle: Math.atan2(b.vy, b.vx), kb: b.kb, from: { x: px, y: py }, primary: b.primary, quiet: b.quiet });
+        this.damage(e, b.dmg, { kbAngle: Math.atan2(b.vy, b.vx), kb: b.kb, from: { x: px, y: py }, primary: b.primary, quiet: b.quiet, forceCrit: b.forceCrit });
+        if (b.poison && !e.dead) this.addPoison(e, b.poison);
         if (b.burn && !e.dead) {
           e.burnT = b.burn.t;
           e.burnDps = Math.max(e.burnDps, b.burn.dps);
@@ -928,14 +1005,14 @@ export class GameScene extends Phaser.Scene {
     for (const k of this.pickups) {
       k.life -= dt;
       const d = Math.hypot(p.x - k.x, p.y - k.y);
-      if (d < 110) {
+      if (d < (p.relic('magnet') ? 330 : 110)) {
         // magnet toward the player
         k.x += ((p.x - k.x) / d) * 420 * dt;
         k.y += ((p.y - k.y) / d) * 420 * dt;
       }
       k.img.setPosition(k.x, k.y).setAlpha(k.life < 3 ? (Math.floor(k.life * 6) % 2 ? 0.3 : 1) : 1);
       if (d < p.r + 10) {
-        const amt = Math.round(p.stats.maxHp * 0.12);
+        const amt = Math.round(p.stats.maxHp * 0.12 * (p.relic('magnet') ? 1.5 : 1));
         p.heal(amt);
         this.fx.text(p.x, p.y, `+${amt}`);
         sfx('heal');

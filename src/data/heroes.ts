@@ -29,7 +29,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
     role: '远程 · 控场',
     desc: '血薄手长，靠走位和控场活下来。',
     color: 0x5ee0ff,
-    hp: 105,
+    hp: 115,
     speed: 230,
     loadout: { weapon: 'bolt', Q: 'blink', E: 'frostNova', R: 'starfall' },
     passive: { name: '星辉回响', desc: '主武器每次命中，Q / E 冷却 -0.1 秒' },

@@ -2,6 +2,8 @@ import Phaser from 'phaser';
 import { DEBUG, FONT, H, PORTRAIT, TOTAL_WAVES, TOUCH, W, hex } from '../config';
 import type { Slot } from '../data/heroes';
 import { BOSS_PHASES } from '../data/enemies';
+import { RELIC_BY_ID } from '../game/relics';
+import { diff } from '../data/difficulty';
 import { ARENA } from '../config';
 
 const ARENA_TOP = ARENA.y + 10;
@@ -26,6 +28,7 @@ export class Hud {
   private hpText: Phaser.GameObjects.Text;
   private waveText: Phaser.GameObjects.Text;
   private infoText: Phaser.GameObjects.Text;
+  private relicText: Phaser.GameObjects.Text;
   private muteText: Phaser.GameObjects.Text;
   private autoText: Phaser.GameObjects.Text;
   private bossName: Phaser.GameObjects.Text;
@@ -41,6 +44,7 @@ export class Hud {
     this.hpText = s.add.text(56, 10, '', st(14)).setDepth(61);
     this.waveText = s.add.text(W / 2, 8, '', st(18)).setOrigin(0.5, 0).setDepth(61);
     this.infoText = s.add.text(W - 50, 10, '', st(14, '#c8cde0')).setOrigin(1, 0).setDepth(61);
+    this.relicText = s.add.text(W - 50, 30, '', { fontFamily: 'sans-serif', fontSize: '16px' }).setOrigin(1, 0).setDepth(61);
     this.muteText = s.add.text(W - 50, H - 30, '', st(13, '#8890a8')).setOrigin(1, 0).setDepth(61);
     this.autoText = s.add.text(W - 160, H - 30, '', st(13, '#8890a8')).setOrigin(1, 0).setDepth(61);
     this.bossName = s.add.text(W / 2, 44, '', st(14, '#ff8899')).setOrigin(0.5, 0).setDepth(61).setVisible(false);
@@ -163,7 +167,8 @@ export class Hud {
     const left = s.enemies.length + s.spawnQueue.length + s.pendingSpawns;
     this.waveText.setText(`第 ${s.wave} / ${TOTAL_WAVES} 波` + (s.boss ? '' : `　剩余 ${left}`));
     const t = Math.floor(s.run.time);
-    this.infoText.setText(`${p.hero.name}　击杀 ${s.run.kills}　${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`);
+    this.infoText.setText(`${diff().name}　${p.hero.name}　击杀 ${s.run.kills}　${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`);
+    this.relicText.setText(p.relics.map((r) => RELIC_BY_ID[r].icon).join(' ') + (p.cores ? `  ◈×${p.cores}` : ''));
 
     if (this.boss) {
       const e = this.boss;

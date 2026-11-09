@@ -2,6 +2,8 @@ import Phaser from 'phaser';
 import { BOT, FONT, H, PORTRAIT, TOUCH, W, hex } from '../config';
 import { HEROES, HeroDef, Slot } from '../data/heroes';
 import { defOf } from '../game/cards';
+import { DIFFS, DiffId, diffId } from '../data/difficulty';
+import { saveSettings, settings } from '../settings';
 import { setMusicMood, sfx, unlockAudio } from '../sfx';
 import { textStyle } from '../ui/widgets';
 
@@ -25,8 +27,28 @@ export class MenuScene extends Phaser.Scene {
 
     const title = this.add.text(W / 2, 92, '裂隙竞技场', textStyle(64, '#ffffff', true)).setOrigin(0.5);
     title.setShadow(0, 0, '#6a4cff', 18, true, true);
-    this.add.text(W / 2, 150, 'RIFT ARENA · 英雄肉鸽竞技场', textStyle(18, '#a9a3ff')).setOrigin(0.5);
-    this.add.text(W / 2, 186, '选择你的英雄，撑过 10 波，击败裂隙之主', textStyle(16, '#c8cde0')).setOrigin(0.5);
+    this.add.text(W / 2, 146, 'RIFT ARENA · 英雄肉鸽竞技场 · 撑过 10 波，击败裂隙之主', textStyle(16, '#a9a3ff')).setOrigin(0.5);
+    // difficulty
+    const ids = Object.keys(DIFFS) as DiffId[];
+    const descT = this.add.text(W / 2, 222, '', textStyle(13, '#8890a8')).setOrigin(0.5);
+    const btns = ids.map((id, i) => {
+      const d = DIFFS[id];
+      const bg = this.add.rectangle(0, 0, 120, 34, 0x151a2c).setStrokeStyle(2, d.color, 0.6);
+      const t = this.add.text(0, 0, d.name, { fontFamily: FONT, fontSize: '17px', color: hex(d.color) }).setOrigin(0.5);
+      const c = this.add.container(W / 2 + (i - 1) * 132, 192, [bg, t]).setSize(120, 34).setInteractive({ useHandCursor: true });
+      c.on('pointerup', () => { settings.difficulty = id; saveSettings(); refresh(); sfx('spawn'); });
+      return { id, bg, t };
+    });
+    const refresh = () => {
+      const cur = diffId();
+      for (const b of btns) {
+        const d = DIFFS[b.id];
+        b.bg.setFillStyle(b.id === cur ? d.color : 0x151a2c, b.id === cur ? 0.35 : 1).setStrokeStyle(2, d.color, b.id === cur ? 1 : 0.5);
+        b.t.setColor(b.id === cur ? '#ffffff' : hex(d.color));
+      }
+      descT.setText(`难度：${DIFFS[cur].name} · ${DIFFS[cur].desc}`);
+    };
+    refresh();
 
     if (PORTRAIT) {
       this.heroCard(W / 2, 420, HEROES.lumen);
@@ -40,7 +62,7 @@ export class MenuScene extends Phaser.Scene {
       ? '左半屏拖动移动　自动瞄准、自动开火　右下按钮放 Q / E / R 技能'
       : 'WASD 移动　鼠标瞄准（主武器自动开火，F 切换）　Q / 空格 / 右键 位移　E 技能　R 大招',
       { ...textStyle(15, '#c8cde0'), align: 'center', wordWrap: { width: W - 60, useAdvancedWrap: true } }).setOrigin(0.5);
-    this.add.text(W / 2, H - 36, '6 种武器 · 11 种技能 · 每波升级或更换 · 8 种敌人 · 3 个首领',
+    this.add.text(W / 2, H - 36, '8 种武器 · 14 种技能 · 14 组羁绊 · 8 把究极武器 · 12 件遗物 · 3 个首领',
       { ...textStyle(13, '#8890a8'), align: 'center', wordWrap: { width: W - 60, useAdvancedWrap: true } }).setOrigin(0.5);
     this.add.text(W - 12, H - 12, 'Made with Claude Code', { fontFamily: FONT, fontSize: '11px', color: '#555c78' }).setOrigin(1, 1);
     // entry to the balance lab (bot simulations + charts)

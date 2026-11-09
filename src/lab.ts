@@ -1,5 +1,6 @@
 import { HEROES } from './data/heroes';
 import { WEAPONS } from './game/weapons';
+import { DIFFS, DiffId, diffId } from './data/difficulty';
 
 /**
  * Balance lab (?lab): the bot plays full runs headlessly while this dashboard
@@ -76,6 +77,7 @@ export function startLab() {
       下面的数据实时更新，用来在每次改数值后检查胜率、难点在哪一波、玩家主要死于什么。<a href="./">← 返回游戏</a></div>
     <div class="bar-row">
       <button data-hero="">两个英雄轮流</button><button data-hero="lumen">只跑星弦</button><button data-hero="kael">只跑赤刃</button>
+      <span style="width:12px"></span>${(Object.keys(DIFFS) as DiffId[]).map((d) => `<button data-diff="${d}">${DIFFS[d].name}</button>`).join('')}
       <button id="lab-pause">暂停</button><button id="lab-csv">导出 CSV</button>
     </div>
     <div class="kpis" id="lab-kpis"></div>
@@ -84,7 +86,11 @@ export function startLab() {
   document.body.appendChild(root);
   root.querySelectorAll<HTMLButtonElement>('button[data-hero]').forEach((b) => {
     if ((b.dataset.hero || null) === hero) b.classList.add('on');
-    b.onclick = () => { location.search = b.dataset.hero ? `?lab&hero=${b.dataset.hero}` : '?lab'; };
+    b.onclick = () => { location.search = `?lab&diff=${diffId()}` + (b.dataset.hero ? `&hero=${b.dataset.hero}` : ''); };
+  });
+  root.querySelectorAll<HTMLButtonElement>('button[data-diff]').forEach((b) => {
+    if (b.dataset.diff === diffId()) b.classList.add('on');
+    b.onclick = () => { location.search = `?lab&diff=${b.dataset.diff}` + (hero ? `&hero=${hero}` : ''); };
   });
   const w = window as unknown as { __runs?: Run[]; __simPaused?: boolean };
   const pauseBtn = document.getElementById('lab-pause')!;

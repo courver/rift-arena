@@ -87,7 +87,7 @@ export class UpgradeScene extends Phaser.Scene {
   /** Bot prefers levelling what it has, sometimes tries a swap, like a typical player. */
   private botPick() {
     const p = this.data_.player;
-    const w = this.data_.cards.map((c) => (c.kind === 'evolve' ? 100 : c.kind === 'level' ? (evolvesSoon(p, c.slot) ? 9 : 4) : c.kind === 'stat' ? 3 : 1.5));
+    const w = this.data_.cards.map((c) => (c.kind === 'evolve' ? 100 : c.kind === 'relic' ? 5 : c.kind === 'level' ? (evolvesSoon(p, c.slot) ? 9 : 4) : c.kind === 'stat' ? 3 : 1.5));
     let r = Math.random() * w.reduce((a, b) => a + b, 0);
     let i = 0;
     while (i < w.length - 1 && r > w[i]) r -= w[i++];

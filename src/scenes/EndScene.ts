@@ -6,6 +6,8 @@ import { loadoutText } from '../game/cards';
 import type { RunStats } from './GameScene';
 import { button, textStyle } from '../ui/widgets';
 import { sfx } from '../sfx';
+import { DIFFS, diffId } from '../data/difficulty';
+import { RELIC_BY_ID } from '../game/relics';
 
 interface EndData {
   win: boolean;
@@ -16,6 +18,7 @@ interface EndData {
   loadout: Record<Slot, Equip>;
   /** what landed the last hit, e.g. 'colossus-slam' */
   by: string;
+  relics: string[];
 }
 
 const BEST_KEY = 'rift-best';
@@ -60,8 +63,9 @@ export class EndScene extends Phaser.Scene {
     let best: Record<string, number> = {};
     try { best = JSON.parse(localStorage.getItem(BEST_KEY) ?? '{}'); } catch { /* ignore */ }
     let newBest = false;
-    if (d.win && (!best[d.hero] || d.run.time < best[d.hero])) {
-      best[d.hero] = d.run.time;
+    const bk = `${d.hero}-${diffId()}`;
+    if (d.win && (!best[bk] || d.run.time < best[bk])) {
+      best[bk] = d.run.time;
       newBest = true;
       try { localStorage.setItem(BEST_KEY, JSON.stringify(best)); } catch { /* ignore */ }
     }
@@ -70,11 +74,11 @@ export class EndScene extends Phaser.Scene {
     this.add.text(W / 2, y, d.win ? '胜利！裂隙已封印' : '你倒下了', textStyle(PORTRAIT ? 46 : 50, d.win ? '#ffd34a' : '#ff5566', true)).setOrigin(0.5);
     y += 56;
     const sub = d.win ? '通关全部 10 波' : `止步第 ${d.wave} / ${TOTAL_WAVES} 波 · 死于${CAUSE[d.by] ?? d.by}`;
-    this.add.text(W / 2, y, `${hero.name} · ${sub}`, textStyle(19, '#c8cde0')).setOrigin(0.5);
+    this.add.text(W / 2, y, `${DIFFS[diffId()].name} · ${hero.name} · ${sub}`, textStyle(19, '#c8cde0')).setOrigin(0.5);
     y += 44;
 
     const rows = [
-      ['用时', fmt(d.run.time) + (newBest ? '　新纪录！' : best[d.hero] ? `　最佳 ${fmt(best[d.hero])}` : '')],
+      ['用时', fmt(d.run.time) + (newBest ? '　新纪录！' : best[bk] ? `　最佳 ${fmt(best[bk])}` : '')],
       ['击杀', String(d.run.kills)],
       ['造成 / 承受伤害', `${Math.round(d.run.dmgDealt)} / ${Math.round(d.run.dmgTaken)}`],
     ];
@@ -88,7 +92,8 @@ export class EndScene extends Phaser.Scene {
       const u = UPGRADES.find((x) => x.id === id);
       return u ? `${u.name}${n > 1 ? ' ×' + n : ''}` : id;
     });
-    const lo = this.add.text(W / 2, y, loadoutText(d.loadout, PORTRAIT ? '\n' : '　'), { ...textStyle(15, '#ffd34a'), align: 'center' }).setOrigin(0.5, 0);
+    const relicLine = d.relics.length ? '\n' + d.relics.map((r) => `${RELIC_BY_ID[r].icon}${RELIC_BY_ID[r].name}`).join('  ') : '';
+    const lo = this.add.text(W / 2, y, loadoutText(d.loadout, PORTRAIT ? '\n' : '　') + relicLine, { ...textStyle(15, '#ffd34a'), align: 'center' }).setOrigin(0.5, 0);
     y += lo.height + 6;
     const bt = this.add.text(W / 2, y, build.length ? build.join('　') : '（无属性强化）', {
       ...textStyle(14, '#dfe3f0'), align: 'center', wordWrap: { width: Math.min(820, W - 60), useAdvancedWrap: true },
@@ -187,7 +192,9 @@ export class EndScene extends Phaser.Scene {
       `【裂隙竞技场 对局报告】`,
       `英雄：${HEROES[d.hero].name}　结果：${d.win ? '通关' : `第 ${d.wave} 波阵亡（${CAUSE[d.by] ?? d.by}）`}　用时：${fmt(d.run.time)}`,
       `击杀 ${d.run.kills}　造成伤害 ${Math.round(d.run.dmgDealt)}　承受伤害 ${Math.round(d.run.dmgTaken)}`,
+      `难度：${DIFFS[diffId()].name}`,
       `构筑：${loadoutText(lo, ' / ')}`,
+      `遗物：${d.relics.map((r) => RELIC_BY_ID[r].name).join('、') || '无'}`,
       `选卡顺序：${d.run.picks.join(', ')}`,
       `评分：${this.rating ? MOODS[this.rating - 1] + ' ' + this.rating + '/5' : '未评分'}　标签：${[...this.tags].join('、') || '无'}`,
       `留言：${this.note?.value.trim() || '（无）'}`,

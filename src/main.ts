@@ -20,6 +20,16 @@ const game = new Phaser.Game({
   scene: [BootScene, MenuScene, GameScene, UpgradeScene, PauseScene, EndScene],
 });
 
+// If the page was laid out while hidden (background tab, collapsed webview) the canvas can be
+// sized 0x0 and Phaser gets no resize event afterwards; re-fit whenever that is detected.
+const refit = () => {
+  const r = game.canvas?.getBoundingClientRect();
+  if (r && (r.width < 2 || r.height < 2) && window.innerWidth > 0) game.scale.refresh();
+};
+document.addEventListener('visibilitychange', refit);
+window.addEventListener('focus', refit);
+window.setInterval(refit, 1000);
+
 // exposed for debugging and automated checks
 (window as unknown as { __phaser: Phaser.Game }).__phaser = game;
 

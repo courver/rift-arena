@@ -60,6 +60,19 @@ export class Player {
   rageArmor = false;
   /** 星轨 synergy window after a blink */
   trailT = 0;
+  /** relic ids (遗物) */
+  relics: string[] = [];
+  /** boss cores needed to evolve a weapon */
+  cores = 0;
+  /** guaranteed crits left (tactical roll) */
+  critShots = 0;
+  critBonus = false;
+  /** true while the current weapon attack uses a guaranteed crit */
+  critNow = false;
+  /** overcharge relic window after casting R */
+  overT = 0;
+  frostHeartCd = 0;
+  twinCount = 0;
   /** animation state */
   moving = false;
   animT = 0;
@@ -106,6 +119,10 @@ export class Player {
     return lo.weapon.id === id || lo.Q.id === id || lo.E.id === id || lo.R.id === id;
   }
 
+  relic(id: string) {
+    return this.relics.includes(id);
+  }
+
   /** Is this synergy (羁绊) active? */
   syn(id: string) {
     const s = SYNERGY_BY_ID[id];
@@ -145,7 +162,8 @@ export class Player {
 
   get atkRate() {
     const w = this.loadout.weapon;
-    return WEAPONS[w.id].rate(w.lv) * this.stats.atkRateMult * (this.rageT > 0 ? 1.5 : 1);
+    const lost = this.relic('berserker') ? Math.floor((1 - this.hp / this.stats.maxHp) * 10) * 0.08 : 0;
+    return WEAPONS[w.id].rate(w.lv) * this.stats.atkRateMult * (this.rageT > 0 ? 1.5 : 1) * (1 + lost);
   }
 
   get speed() {
@@ -159,7 +177,7 @@ export class Player {
 
   cdOf(slot: SkillSlot) {
     const e = this.loadout[slot];
-    return SKILLS[e.id].cd(e.lv) * (1 - Math.min(0.5, this.stats.cdr));
+    return SKILLS[e.id].cd(e.lv) * (1 - Math.min(0.5, this.stats.cdr)) * (slot === 'R' && this.relic('overcharge') ? 0.7 : 1);
   }
 
   heal(n: number) {

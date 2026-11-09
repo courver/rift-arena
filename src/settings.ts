@@ -5,12 +5,13 @@ export interface Settings {
   shake: boolean;
   /** first-run tips already shown */
   tutorialDone: boolean;
+  difficulty: 'normal' | 'hard' | 'nightmare';
 }
 
 const KEY = 'rift-settings';
 
 function load(): Settings {
-  const d: Settings = { sound: true, music: true, shake: true, tutorialDone: false };
+  const d: Settings = { sound: true, music: true, shake: true, tutorialDone: false, difficulty: 'normal' };
   try {
     const legacyMuted = localStorage.getItem('rift-muted') === '1';
     const saved = JSON.parse(localStorage.getItem(KEY) ?? '{}') as Partial<Settings>;

@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { AFFIXES, Affix, BOSS_PHASES, ENEMIES, EnemyDef, EnemyType, hpScale, isBossType } from '../data/enemies';
 import { ART_SCALE } from './art';
+import { diff } from '../data/difficulty';
 import { FONT } from '../config';
 import type { GameScene } from '../scenes/GameScene';
 import { sfx } from '../sfx';
@@ -27,7 +28,7 @@ export class Enemy {
   maxHp: number;
   speed: number;
   dead = false;
-  affix: Affix | null = null;
+  affixes: Affix[] = [];
   /** warded affix: absorbs damage first, regenerates out of combat */
   ward = 0;
   wardMax = 0;
@@ -37,6 +38,10 @@ export class Enemy {
   slowT = 0;
   freezeT = 0;
   burnT = 0;
+  /** poison stacks (毒), refreshed on each application */
+  poison = 0;
+  poisonT = 0;
+  poisonTick = 0;
   burnDps = 0;
   burnTick = 0;
   kbx = 0;
@@ -63,15 +68,16 @@ export class Enemy {
   private beamT = 5;
   private orbT = 4;
 
-  constructor(scene: GameScene, type: EnemyType, x: number, y: number, wave: number, affix: Affix | null = null) {
+  constructor(scene: GameScene, type: EnemyType, x: number, y: number, wave: number, affixes: Affix[] = []) {
     this.type = type;
     this.def = ENEMIES[type];
     this.x = x;
     this.y = y;
     this.r = this.def.r;
-    this.speed = this.def.speed;
+    const D = diff();
+    this.speed = this.def.speed * D.speed;
     this.isBoss = isBossType(type);
-    this.maxHp = this.hp = Math.round(this.def.hp * (this.isBoss ? 1 : hpScale(wave)));
+    this.maxHp = this.hp = Math.round(this.def.hp * (this.isBoss ? 1 : hpScale(wave)) * D.hp);
     this.img = scene.add.image(x, y, type).setDepth(this.isBoss ? 6 : 5);
     this.fireT = Phaser.Math.FloatBetween(1, 2.2);
     this.chargeT = Phaser.Math.FloatBetween(1.2, 3);
@@ -82,11 +88,11 @@ export class Enemy {
     if (type === 'shielder') {
       this.extra.push(scene.add.image(x, y, 'shield').setDepth(6));
     }
-    if (affix) {
-      this.affix = affix;
-      if (affix === 'swift') this.speed *= 1.5;
-      if (affix === 'warded') this.ward = this.wardMax = Math.round(this.maxHp * 0.3);
-      const label = scene.add.text(x, y, AFFIXES[affix], {
+    if (affixes.length) {
+      this.affixes = affixes;
+      if (affixes.includes('swift')) this.speed *= 1.5;
+      if (affixes.includes('warded')) this.ward = this.wardMax = Math.round(this.maxHp * 0.3);
+      const label = scene.add.text(x, y, affixes.map((a) => AFFIXES[a]).join(' · '), {
         fontFamily: FONT, fontSize: '13px', fontStyle: 'bold', color: '#ffd0f4', stroke: '#000', strokeThickness: 3,
       }).setOrigin(0.5).setDepth(21);
       this.extra.push(label);
@@ -106,7 +112,7 @@ export class Enemy {
   }
 
   get enraged() {
-    return this.affix === 'enraged' && this.hp < this.maxHp * 0.5;
+    return this.affixes.includes('enraged') && this.hp < this.maxHp * 0.5;
   }
 
   update(s: GameScene, dt: number) {
@@ -281,6 +287,7 @@ export class Enemy {
     else if (this.slowT > 0) this.img.setTint(0xaee6ff);
     else if (this.state === 'windup' || this.state === 'aim') this.img.setTint(0xff8080);
     else if (this.burnT > 0) this.img.setTint(0xffb080);
+    else if (this.poison > 0) this.img.setTint(0xa8ff80);
     else if ((this.isBoss && this.phase === BOSS_PHASES[this.type]!.length + 1) || this.enraged) this.img.setTint(0xff9090);
     else this.img.clearTint();
   }

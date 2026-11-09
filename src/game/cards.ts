@@ -5,13 +5,15 @@ import type { Player } from './Player';
 import { SKILLS } from './skills';
 import { SYNERGIES, ULTIMATES, UltimatePath } from './synergy';
 import { MAX_LV, WEAPONS } from './weapons';
+import { MAX_RELICS, RELICS, RELIC_BY_ID } from './relics';
 
 /** One choice on the between-wave screen. */
 export type Card =
   | { kind: 'stat'; up: Upgrade }
   | { kind: 'level'; slot: Slot; n?: number }
   | { kind: 'swap'; slot: Slot; id: string }
-  | { kind: 'evolve'; id: string };
+  | { kind: 'evolve'; id: string }
+  | { kind: 'relic'; id: string };
 
 export const SLOT_NAME: Record<Slot, string> = { weapon: '主武器', Q: 'Q 技能', E: 'E 技能', R: 'R 大招' };
 
@@ -42,7 +44,7 @@ export function evolveReady(p: Player): UltimatePath | undefined {
   const u = ultimatePath(p);
   if (!u || p.loadout.weapon.lv < MAX_LV) return undefined;
   const s = slotOf(p, u.partner);
-  return s && p.loadout[s].lv >= MAX_LV ? u : undefined;
+  return s && p.loadout[s].lv >= MAX_LV && p.cores > 0 ? u : undefined;
 }
 
 /** "究极进化：星弹 Lv3/5 + 相位闪 Lv2/5 → 银河星爆" */
@@ -51,7 +53,7 @@ export function ultimateProgress(p: Player) {
   if (!u) return WEAPONS[p.loadout.weapon.id].ultimate ? `究极武器「${WEAPONS[p.loadout.weapon.id].name}」已觉醒` : '';
   const s = slotOf(p, u.partner);
   const partner = s ? `${itemName(u.partner)} Lv${p.loadout[s].lv}/5` : `${itemName(u.partner)}（未装备）`;
-  return `究极进化：${itemName(u.from)} Lv${p.loadout.weapon.lv}/5 + ${partner} → ${WEAPONS[u.id].name}`;
+  return `究极进化：${itemName(u.from)} Lv${p.loadout.weapon.lv}/5 + ${partner} + 首领核心 ${p.cores}/1 → ${WEAPONS[u.id].name}`;
 }
 
 export interface CardView {
@@ -80,6 +82,10 @@ function synergyHint(p: Player, slot: Slot, newId: string) {
 
 export function describe(c: Card, p: Player): CardView {
   if (c.kind === 'stat') return { title: c.up.name, desc: c.up.desc, tag: '属性', rarity: c.up.rarity, icon: '' };
+  if (c.kind === 'relic') {
+    const r = RELIC_BY_ID[c.id];
+    return { title: r.name, desc: `${r.desc}\n（遗物 ${p.relics.length + 1}/${MAX_RELICS}）`, tag: '遗物', rarity: 'relic', icon: r.icon };
+  }
   if (c.kind === 'evolve') {
     const d = WEAPONS[c.id];
     return { title: d.name, desc: `${d.desc}\n（${itemName(p.loadout.weapon.id)} → 究极武器）`, tag: '究极进化', rarity: 'legend', icon: d.icon };
@@ -120,8 +126,11 @@ export function applyCard(c: Card, p: Player) {
   if (c.kind === 'stat') {
     p.mods[c.up.id] = p.mod(c.up.id) + 1;
     c.up.apply(p);
+  } else if (c.kind === 'relic') {
+    p.relics.push(c.id);
   } else if (c.kind === 'evolve') {
     p.loadout.weapon = { id: c.id, lv: MAX_LV };
+    p.cores--;
   } else if (c.kind === 'level') {
     p.loadout[c.slot].lv = Math.min(MAX_LV, p.loadout[c.slot].lv + (c.n ?? 1));
   } else {
@@ -139,6 +148,7 @@ export { evolvesSoon };
 export function cardLabel(c: Card, p: Player) {
   if (c.kind === 'stat') return c.up.id;
   if (c.kind === 'evolve') return `!${c.id}`;
+  if (c.kind === 'relic') return `#${c.id}`;
   if (c.kind === 'level') return `${p.loadout[c.slot].id}+`;
   return `>${c.id}`;
 }
@@ -155,8 +165,11 @@ export function loadoutText(lo: Record<Slot, { id: string; lv: number }>, sep = 
  * The fixed shape keeps every pick meaningful while still mixing in new toys.
  * When the weapon and its partner are both maxed, an evolution card leads.
  */
-export function rollCards(p: Player): Card[] {
+export function rollCards(p: Player, bonus = false): Card[] {
   const out: Card[] = [];
+  const relics: Card[] = p.relics.length < MAX_RELICS
+    ? RELICS.filter((r) => !p.relic(r.id)).map((r) => ({ kind: 'relic', id: r.id }))
+    : [];
   const ready = evolveReady(p);
   if (ready) out.push({ kind: 'evolve', id: ready.id });
 
@@ -175,23 +188,23 @@ export function rollCards(p: Player): Card[] {
     if (up) out.push({ kind: 'stat', up });
   };
   const pick = (a: Card[]) => a.splice(Phaser.Math.Between(0, a.length - 1), 1)[0];
-  // level cards lean toward the weapon's ultimate path once it is under way
+  // level cards lean slightly toward the weapon's ultimate path
   const pickLevel = () => {
-    const w = levels.map((c) => (c.kind === 'level' && evolvesSoon(p, c.slot) ? 3 : 1));
+    const w = levels.map((c) => (c.kind === 'level' && evolvesSoon(p, c.slot) ? 1.5 : 1));
     let r = Math.random() * w.reduce((a, b) => a + b, 0);
     let i = 0;
     while (i < w.length - 1 && r > w[i]) r -= w[i++];
-    const c = levels.splice(i, 1)[0];
-    // occasional double level on the ultimate path, so evolution is reachable before the last boss
-    if (c.kind === 'level' && evolvesSoon(p, c.slot) && p.loadout[c.slot].lv <= 3 && Math.random() < 0.25) return { ...c, n: 2 };
-    return c;
+    return levels.splice(i, 1)[0];
   };
 
-  if (levels.length) out.push(pickLevel());
-  takeStat();
+  // boss reward picks always show a relic
+  if (bonus && relics.length && out.length < 3) out.push(pick(relics));
+  if (levels.length && out.length < 3) out.push(pickLevel());
+  if (out.length < 3) takeStat();
   if (out.length < 3) {
     const r = Math.random();
-    if (r < 0.45 && swaps.length) out.push(pick(swaps));
+    if (r < 0.35 && swaps.length) out.push(pick(swaps));
+    else if (r < 0.55 && relics.length) out.push(pick(relics));
     else if (r < 0.85 && levels.length) out.push(pickLevel());
     else takeStat();
   }

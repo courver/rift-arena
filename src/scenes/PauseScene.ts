@@ -3,6 +3,7 @@ import { H, PORTRAIT, W } from '../config';
 import { UPGRADES } from '../data/upgrades';
 import { loadoutText, ultimateProgress } from '../game/cards';
 import { SYNERGIES } from '../game/synergy';
+import { RELIC_BY_ID } from '../game/relics';
 import type { Player } from '../game/Player';
 import { button, textStyle } from '../ui/widgets';
 import { saveSettings, settings } from '../settings';
@@ -38,6 +39,7 @@ export class PauseScene extends Phaser.Scene {
     const synText = [
       active.length ? active.map((sy) => `羁绊「${sy.name}」${sy.desc}`).join('\n') : '羁绊：未激活（更换卡上带 ★ 的可以激活）',
       ultimateProgress(p),
+      p.relics.length ? '遗物：' + p.relics.map((r) => `${RELIC_BY_ID[r].icon}${RELIC_BY_ID[r].name}`).join('  ') : '',
     ].filter(Boolean).join('\n');
     const st = this.add.text(W / 2, py + 30, synText, { ...textStyle(14, '#7be8ff'), align: 'center', lineSpacing: 4, wordWrap: { width: W - 60, useAdvancedWrap: true } }).setOrigin(0.5, 0);
     const by = py + 30 + st.height + 14;

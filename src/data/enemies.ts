@@ -58,4 +58,4 @@ export function hpScale(wave: number) {
 }
 
 /** Global multiplier on damage enemies deal; the main difficulty knob after build power changes. */
-export const ENEMY_DMG = 1.25;
+export const ENEMY_DMG = 1.35;

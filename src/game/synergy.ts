@@ -22,6 +22,11 @@ export const SYNERGIES: Synergy[] = [
   { id: 'timeRift', name: '时隙', a: 'blink', b: 'timeStop', desc: '时间凝滞期间，相位闪不消耗充能' },
   { id: 'timeSlash', name: '斩时', a: 'dashStrike', b: 'timeStop', desc: '时间凝滞期间，突进斩不消耗充能' },
   { id: 'phantomBlade', name: '幻刃', a: 'boomerang', b: 'shadowStep', desc: '幻影分身存在期间不断投出回旋刃' },
+  { id: 'toxicTrail', name: '毒径', a: 'venom', b: 'blink', desc: '相位闪穿过的敌人叠加 4 层毒' },
+  { id: 'plague', name: '瘟疫', a: 'venom', b: 'poisonCloud', desc: '中毒的敌人死亡时，把毒扩散给周围敌人' },
+  { id: 'railTime', name: '超电磁', a: 'railgun', b: 'timeStop', desc: '时间凝滞期间轨道炮射速 ×3' },
+  { id: 'eventHorizon', name: '视界', a: 'blackHole', b: 'chain', desc: '黑洞每 0.5 秒电击其中 4 个敌人' },
+  { id: 'gunKata', name: '枪斗术', a: 'roll', b: 'scatter', desc: '翻滚后的必暴击散射，弹丸数量翻倍' },
 ];
 
 export const SYNERGY_BY_ID: Record<string, Synergy> = Object.fromEntries(SYNERGIES.map((s) => [s.id, s]));
@@ -40,4 +45,6 @@ export const ULTIMATES: UltimatePath[] = [
   { id: 'thunderGod', from: 'chain', partner: 'gravityWell' },
   { id: 'bladestorm', from: 'boomerang', partner: 'whirlwind' },
   { id: 'dragonBreath', from: 'flame', partner: 'frostNova' },
+  { id: 'starBreaker', from: 'railgun', partner: 'blackHole' },
+  { id: 'plagueLord', from: 'venom', partner: 'poisonCloud' },
 ];

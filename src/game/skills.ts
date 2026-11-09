@@ -196,6 +196,78 @@ class Turret implements Effect {
   }
 }
 
+class PoisonCloud implements Effect {
+  img: Phaser.GameObjects.Image;
+  private tick = 0;
+  constructor(s: GameScene, private x: number, private y: number, private r: number, private t: number, private stacks: number) {
+    this.img = s.add.image(x, y, 'cloud').setTint(0x8aff5a).setAlpha(0.55).setDepth(3).setScale((r * 2) / 128);
+  }
+  update(s: GameScene, dt: number) {
+    this.t -= dt;
+    this.tick -= dt;
+    this.img.rotation += dt * 0.6;
+    if (this.tick <= 0) {
+      this.tick = 0.5;
+      for (const e of s.enemiesInRadius(this.x, this.y, this.r)) {
+        s.addPoison(e, this.stacks);
+        s.damage(e, 5, { aoe: true, quiet: true });
+      }
+    }
+    this.img.setAlpha(this.t < 0.6 ? this.t : 0.55);
+    return this.t > 0;
+  }
+  destroy() {
+    this.img.destroy();
+  }
+}
+
+class BlackHole implements Effect {
+  img: Phaser.GameObjects.Image;
+  core: Phaser.GameObjects.Arc;
+  private tick = 0;
+  private zapT = 0.2;
+  constructor(s: GameScene, private x: number, private y: number, private t: number, private dmg: number, private boom: number) {
+    this.img = s.add.image(x, y, 'ring').setTint(0x6a2aff).setAlpha(0.9).setDepth(3).setScale(5);
+    this.core = s.add.circle(x, y, 26, 0x000000, 1).setStrokeStyle(4, 0xd9a8ff).setDepth(4);
+    s.fx.ring(x, y, 330, 0x6a2aff, 400, 0.15);
+  }
+  update(s: GameScene, dt: number) {
+    this.t -= dt;
+    this.tick -= dt;
+    this.zapT -= dt;
+    this.img.rotation -= dt * 6;
+    this.img.setScale(5 * (0.9 + 0.1 * Math.sin(this.t * 14)));
+    for (const e of s.enemiesInRadius(this.x, this.y, 330)) {
+      if (e.isBoss) continue;
+      const d = Math.hypot(this.x - e.x, this.y - e.y);
+      if (d < 10) continue;
+      const pull = (e.type === 'elite' ? 120 : 260) * dt;
+      e.x += ((this.x - e.x) / d) * Math.min(pull, d);
+      e.y += ((this.y - e.y) / d) * Math.min(pull, d);
+    }
+    if (this.tick <= 0) {
+      this.tick = 0.25;
+      for (const e of s.enemiesInRadius(this.x, this.y, 120)) s.damage(e, this.dmg, { aoe: true });
+    }
+    if (this.zapT <= 0 && s.player.syn('eventHorizon')) {
+      this.zapT = 0.5;
+      const inside = Phaser.Utils.Array.Shuffle(s.enemiesInRadius(this.x, this.y, 330)).slice(0, 4);
+      for (const e of inside) {
+        s.fx.lightning([{ x: this.x, y: this.y }, { x: e.x, y: e.y }], 0xa8b8ff);
+        s.damage(e, 28, { aoe: true });
+      }
+    }
+    if (this.t > 0) return true;
+    blast(s, this.x, this.y, 170 * s.player.stats.areaMult, this.boom, 0x9a6aff);
+    s.shake(250, 0.012);
+    return false;
+  }
+  destroy() {
+    this.img.destroy();
+    this.core.destroy();
+  }
+}
+
 class Laser implements Effect {
   g: Phaser.GameObjects.Graphics;
   private tick = 0;
@@ -267,6 +339,7 @@ export const SKILLS: Record<string, SkillDef> = {
       let refunded = false;
       for (const e of hit) {
         const killed = s.damage(e, dmg, { aoe: true, kbAngle: a + Math.PI / 2, kb: 140 });
+        if (!killed && p.syn('toxicTrail')) s.addPoison(e, 4);
         if (killed && lv >= 3 && !refunded) {
           refunded = true;
           p.refund('Q');
@@ -316,6 +389,29 @@ export const SKILLS: Record<string, SkillDef> = {
     },
   },
 
+  roll: {
+    id: 'roll', slot: 'Q', name: '战术翻滚', icon: '↻', use: 'escape',
+    desc: '短距离翻滚，之后的几次主武器攻击必定暴击',
+    cd: (lv) => 3500 - 200 * (lv - 1),
+    charges: (lv) => (lv >= 4 ? 2 : 1),
+    levels: ['冷却 -0.2 秒', '必暴击次数 +1，并立刻装填', '2 层充能', '必暴击次数 +1，必暴击伤害 +50%'],
+    cast(s, p, lv) {
+      const a = dashDir(s, p);
+      const dur = 0.12;
+      p.dashT = dur;
+      p.dashVx = (Math.cos(a) * 140) / dur;
+      p.dashVy = (Math.sin(a) * 140) / dur;
+      p.dashDmg = 0;
+      p.dashHit.clear();
+      p.iframes = Math.max(p.iframes, 0.25);
+      p.critShots = 2 + b(lv >= 3) + b(lv >= 5);
+      p.critBonus = lv >= 5;
+      if (lv >= 3) p.atkTimer = 0;
+      s.fx.text(p.x, p.y - 26, `必暴击 ×${p.critShots}`, '#ffd34a');
+      sfx('blink');
+    },
+  },
+
   // ---- E: utility ----
   frostNova: {
     id: 'frostNova', slot: 'E', name: '霜环', icon: '❄', use: 'aoe',
@@ -358,6 +454,18 @@ export const SKILLS: Record<string, SkillDef> = {
     cast(s, p, lv) {
       s.addEffect(new Turret(s, p.x, p.y, 7 + (lv - 1), lv));
       sfx('spawn');
+    },
+  },
+
+  poisonCloud: {
+    id: 'poisonCloud', slot: 'E', name: '毒雾', icon: '☁', use: 'zone',
+    desc: '在准星处释放毒雾，持续叠加中毒',
+    cd: (lv) => 9000 - 500 * (lv - 1) - (lv >= 4 ? 1000 : 0),
+    levels: ['持续 +1 秒', '每次多叠 1 层毒', '冷却额外 -1 秒', '范围 +30%'],
+    cast(s, p, lv) {
+      const pt = s.aimPoint();
+      s.addEffect(new PoisonCloud(s, pt.x, pt.y, 130 * p.stats.areaMult * (lv >= 5 ? 1.3 : 1), 4 + b(lv >= 2), 2 + b(lv >= 3)));
+      sfx('nova');
     },
   },
 
@@ -415,6 +523,18 @@ export const SKILLS: Record<string, SkillDef> = {
   },
 };
 
+SKILLS.blackHole = {
+  id: 'blackHole', slot: 'R', name: '黑洞', icon: '●', use: 'ult',
+  desc: '在准星处制造黑洞，吸入全场敌人后坍缩爆炸',
+  cd: (lv) => 28000 - 1500 * (lv - 1),
+  levels: ['持续伤害提升', '持续 +1 秒', '持续伤害提升', '坍缩伤害 ×1.5'],
+  cast(s, p, lv) {
+    const pt = s.aimPoint();
+    s.addEffect(new BlackHole(s, pt.x, pt.y, 2.5 + b(lv >= 3), 10 + 4 * (b(lv >= 2) + b(lv >= 4)), (180 + 50 * (lv - 1)) * (lv >= 5 ? 1.5 : 1)));
+    sfx('rage');
+  },
+};
+
 /** Per-frame ability logic tied to the player (dash contact, whirlwind ticks). */
 export function updatePlayerSkills(s: GameScene, p: Player, dt: number) {
   p.trailT -= dt;
@@ -431,7 +551,7 @@ export function updatePlayerSkills(s: GameScene, p: Player, dt: number) {
     s.clampToArena(p);
     s.fx.afterimage(p.sprite, p.hero.color);
     for (const e of s.enemies) {
-      if (e.dead || p.dashHit.has(e)) continue;
+      if (e.dead || p.dashHit.has(e) || p.dashDmg <= 0) continue;
       if (Math.hypot(e.x - p.x, e.y - p.y) < e.r + p.r + 14) {
         p.dashHit.add(e);
         const killed = s.damage(e, p.dashDmg, { kbAngle: Math.atan2(p.dashVy, p.dashVx) + Math.PI / 2, kb: 300, aoe: true });

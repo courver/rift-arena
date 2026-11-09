@@ -26,8 +26,8 @@ export const FONT = '"Microsoft YaHei", "PingFang SC", "Noto Sans SC", sans-seri
 
 export const TOTAL_WAVES = 10;
 
-export const RARITY_COLOR = { common: 0x9aa4b8, rare: 0x4aa8ff, epic: 0xc06bff, legend: 0xffd34a } as const;
-export const RARITY_NAME = { common: '普通', rare: '稀有', epic: '史诗', legend: '传说' } as const;
+export const RARITY_COLOR = { common: 0x9aa4b8, rare: 0x4aa8ff, epic: 0xc06bff, legend: 0xffd34a, relic: 0xff8a3a } as const;
+export const RARITY_NAME = { common: '普通', rare: '稀有', epic: '史诗', legend: '传说', relic: '遗物' } as const;
 
 export function hex(c: number) {
   return '#' + c.toString(16).padStart(6, '0');

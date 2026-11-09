@@ -25,6 +25,24 @@ export interface WeaponDef {
   base?: string;
 }
 
+/** Distance from (x, y) to the arena wall along angle a. */
+function toWall(x: number, y: number, a: number) {
+  const ca = Math.cos(a);
+  const sa = Math.sin(a);
+  const tx = ca > 0 ? (ARENA.x + ARENA.w - x) / ca : ca < 0 ? (ARENA.x - x) / ca : Infinity;
+  const ty = sa > 0 ? (ARENA.y + ARENA.h - y) / sa : sa < 0 ? (ARENA.y - y) / sa : Infinity;
+  return Math.min(tx, ty);
+}
+
+/** Instant piercing line (railgun). */
+function rail(s: GameScene, p: Player, a: number, width: number, dmg: number, color: number) {
+  const len = toWall(p.x, p.y, a);
+  const ex = p.x + Math.cos(a) * len;
+  const ey = p.y + Math.sin(a) * len;
+  s.fx.streak(p.x, p.y, ex, ey, color, width);
+  for (const e of s.enemiesOnSegment(p.x, p.y, ex, ey, width / 2)) s.damage(e, dmg, { aoe: true, primary: true, kbAngle: a, kb: 120 });
+}
+
 export const MAX_LV = 5;
 
 export const WEAPONS: Record<string, WeaponDef> = {
@@ -80,7 +98,7 @@ export const WEAPONS: Record<string, WeaponDef> = {
     rate: () => 1.5,
     levels: ['+1 弹丸 · 伤害 +2', '+1 弹丸 · 伤害 +2', '+1 弹丸 · 伤害 +2', '+1 弹丸 · 弹丸穿透 +1'],
     fire(s, p, lv) {
-      const n = 5 + (lv - 1);
+      const n = (5 + (lv - 1)) * (p.critNow && p.syn('gunKata') ? 2 : 1);
       for (let i = 0; i < n; i++) {
         const a = p.aimAngle + (i / (n - 1) - 0.5) * 0.6 + Phaser.Math.FloatBetween(-0.04, 0.04);
         s.spawnPBullet({ x: p.x, y: p.y, angle: a, speed: Phaser.Math.Between(560, 680), dmg: 9 + 2 * (lv - 1), pierce: 1 + b(lv >= 5), tex: 'pellet', life: 0.36, kb: 170 });
@@ -160,6 +178,36 @@ export const WEAPONS: Record<string, WeaponDef> = {
         burn: { dps: 9 + 4 * (b(lv >= 2) + b(lv >= 4)), t: 2 },
       });
       sfx('flame');
+    },
+  },
+
+  railgun: {
+    id: 'railgun', name: '轨道炮', icon: '═', color: 0x8fd0ff, range: 300,
+    desc: '慢速蓄能，瞬间射出贯穿全场的电磁炮',
+    rate: (lv) => 0.75 + 0.08 * (lv - 1),
+    levels: ['伤害 +15 · 射速提升', '炮线加粗', '伤害 +15 · 射速提升', '一次射出两道炮线'],
+    fire(s, p, lv) {
+      const width = lv >= 3 ? 28 : 18;
+      const dmg = 55 + 15 * (lv >= 2 ? 1 : 0) + 15 * (lv >= 4 ? 1 : 0);
+      if (lv >= 5) { rail(s, p, p.aimAngle - 0.08, width, dmg, 0x8fd0ff); rail(s, p, p.aimAngle + 0.08, width, dmg, 0x8fd0ff); }
+      else rail(s, p, p.aimAngle, width, dmg, 0x8fd0ff);
+      s.shake(70, 0.004);
+      sfx('zap');
+    },
+  },
+
+  venom: {
+    id: 'venom', name: '毒刺', icon: '✧', color: 0x8aff5a, range: 240,
+    desc: '高速毒镖，每次命中叠加中毒（层数越多伤害越高）',
+    rate: () => 4,
+    levels: ['每次命中多叠 1 层毒', '多射 1 发', '每次命中再多叠 1 层毒', '多射 1 发 · 伤害 +3'],
+    fire(s, p, lv) {
+      const n = 1 + b(lv >= 3) + b(lv >= 5);
+      for (let i = 0; i < n; i++) {
+        const a = p.aimAngle + (i - (n - 1) / 2) * 0.12;
+        s.spawnPBullet({ x: p.x + Math.cos(a) * 18, y: p.y + Math.sin(a) * 18, angle: a, speed: 780, dmg: 5 + 3 * b(lv >= 5), pierce: 1, tex: 'dart', life: 0.8, poison: 1 + b(lv >= 2) + b(lv >= 4) });
+      }
+      sfx('shoot');
     },
   },
 
@@ -270,6 +318,28 @@ export const WEAPONS: Record<string, WeaponDef> = {
         });
       }
       sfx('flame');
+    },
+  },
+  starBreaker: {
+    id: 'starBreaker', name: '歼星炮', icon: '☲', color: 0xc8e8ff, range: 300, ultimate: true, base: 'railgun',
+    desc: '三道扇形巨型炮线，贯穿全场',
+    rate: () => 0.95, levels: [],
+    fire(s, p) {
+      for (const off of [-0.16, 0, 0.16]) rail(s, p, p.aimAngle + off, 34, 140, 0xffffff);
+      s.shake(120, 0.008);
+      sfx('boom');
+    },
+  },
+  plagueLord: {
+    id: 'plagueLord', name: '万毒之源', icon: '☣', color: 0xb0ff6a, range: 240, ultimate: true, base: 'venom',
+    desc: '5 发毒镖每发叠 3 层毒（上限 20），中毒者死亡时扩散',
+    rate: () => 4.2, levels: [],
+    fire(s, p) {
+      for (let i = 0; i < 5; i++) {
+        const a = p.aimAngle + (i - 2) * 0.13;
+        s.spawnPBullet({ x: p.x + Math.cos(a) * 18, y: p.y + Math.sin(a) * 18, angle: a, speed: 800, dmg: 8, pierce: 2, tex: 'dart', life: 0.9, poison: 3, tint: 0xd0ff80 });
+      }
+      sfx('shoot');
     },
   },
 };

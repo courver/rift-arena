@@ -92,10 +92,10 @@ export class Fx {
   }
 
   /** Bright blade streak along a dash path. */
-  streak(x0: number, y0: number, x1: number, y1: number, color: number) {
+  streak(x0: number, y0: number, x1: number, y1: number, color: number, width = 14) {
     const g = this.scene.add.graphics().setDepth(9);
-    g.lineStyle(14, color, 0.35).lineBetween(x0, y0, x1, y1);
-    g.lineStyle(4, 0xffffff, 0.95).lineBetween(x0, y0, x1, y1);
+    g.lineStyle(width, color, 0.35).lineBetween(x0, y0, x1, y1);
+    g.lineStyle(Math.max(3, width * 0.3), 0xffffff, 0.95).lineBetween(x0, y0, x1, y1);
     this.scene.tweens.add({ targets: g, alpha: 0, duration: 220, onComplete: () => g.destroy() });
   }
 
