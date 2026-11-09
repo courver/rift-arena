@@ -25,9 +25,9 @@ export const ENEMIES: Record<EnemyType, EnemyDef> = {
   priest: { name: '裂隙祭司', hint: '远离战场，周期性治疗附近的敌人，优先击杀', hp: 48, speed: 70, dmg: 6, r: 13, color: 0x3fe0c0, drop: 0.25 },
   brute: { name: '重甲蛮兵', hint: '红色预警线后冲锋', hp: 150, speed: 52, dmg: 18, r: 22, color: 0xff9a3c, drop: 0.2 },
   elite: { name: '精英 · 裂隙守卫', hint: '冲锋 + 环形弹幕，并带随机词缀', hp: 600, speed: 60, dmg: 20, r: 30, color: 0xff4fd8, drop: 1 },
-  boss: { name: '裂隙之主', hint: '', hp: 4200, speed: 55, dmg: 22, r: 54, color: 0xff3355, drop: 0 },
-  colossus: { name: '熔核巨像', hint: '', hp: 1500, speed: 42, dmg: 18, r: 46, color: 0xff8a3a, drop: 0 },
-  weaver: { name: '虚空织影', hint: '', hp: 2300, speed: 75, dmg: 18, r: 34, color: 0xb06bff, drop: 0 },
+  boss: { name: '裂隙之主', hint: '', hp: 5400, speed: 55, dmg: 22, r: 54, color: 0xff3355, drop: 0 },
+  colossus: { name: '熔核巨像', hint: '', hp: 1900, speed: 42, dmg: 18, r: 46, color: 0xff8a3a, drop: 0 },
+  weaver: { name: '虚空织影', hint: '', hp: 3000, speed: 75, dmg: 18, r: 34, color: 0xb06bff, drop: 0 },
 };
 
 export const BOSS_TYPES: EnemyType[] = ['colossus', 'weaver', 'boss'];
@@ -54,5 +54,8 @@ export const AFFIXES: Record<Affix, string> = {
 
 /** Enemy HP grows each wave so upgrades stay meaningful. */
 export function hpScale(wave: number) {
-  return 1 + 0.11 * (wave - 1);
+  return 1 + 0.17 * (wave - 1);
 }
+
+/** Global multiplier on damage enemies deal; the main difficulty knob after build power changes. */
+export const ENEMY_DMG = 1.25;

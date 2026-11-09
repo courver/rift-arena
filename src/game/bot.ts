@@ -99,10 +99,11 @@ export class Bot {
     const cluster = s.enemiesInRadius(target.x, target.y, 180).length;
     const bigFight = !!s.boss || target.type === 'elite';
     for (const slot of ['Q', 'E', 'R'] as const) {
-      if (p.cd[slot] > 0) continue;
+      if (p.charges[slot] <= 0) continue;
       const use = SKILLS[p.loadout[slot].id].use;
       const go =
         use === 'escape' ? danger :
+        use === 'strike' ? danger || (near(200) >= 3 && p.charges[slot] >= p.maxCharges(slot)) :
         use === 'engage' ? best > 140 && best < 300 :
         use === 'aoe' ? near(140) >= 3 || (bigFight && best < 150) :
         use === 'zone' ? cluster >= 4 || bigFight :

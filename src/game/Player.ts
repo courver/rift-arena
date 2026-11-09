@@ -4,6 +4,7 @@ import type { Enemy } from './Enemy';
 import { SKILLS } from './skills';
 import { WEAPONS } from './weapons';
 import { ART_SCALE } from './art';
+import { SYNERGY_BY_ID } from './synergy';
 
 export interface Stats {
   maxHp: number;
@@ -36,7 +37,10 @@ export class Player {
   mods: Record<string, number> = {};
   loadout: Record<Slot, Equip>;
   hp: number;
+  /** recharge timer (ms) for the next charge */
   cd: Record<SkillSlot, number> = { Q: 0, E: 0, R: 0 };
+  /** stored uses; most skills hold 1, some upgrade to 2 */
+  charges: Record<SkillSlot, number> = { Q: 1, E: 1, R: 1 };
   atkTimer = 0;
   iframes = 0;
   aimAngle = 0;
@@ -54,6 +58,8 @@ export class Player {
   whirlLv = 1;
   rageT = 0;
   rageArmor = false;
+  /** 星轨 synergy window after a blink */
+  trailT = 0;
   /** animation state */
   moving = false;
   animT = 0;
@@ -94,6 +100,45 @@ export class Player {
     return this.mods[id] ?? 0;
   }
 
+  /** Is this weapon / skill id currently equipped? */
+  owns(id: string) {
+    const lo = this.loadout;
+    return lo.weapon.id === id || lo.Q.id === id || lo.E.id === id || lo.R.id === id;
+  }
+
+  /** Is this synergy (羁绊) active? */
+  syn(id: string) {
+    const s = SYNERGY_BY_ID[id];
+    return !!s && this.owns(s.a) && this.owns(s.b);
+  }
+
+  maxCharges(slot: SkillSlot) {
+    const e = this.loadout[slot];
+    return SKILLS[e.id].charges?.(e.lv) ?? 1;
+  }
+
+  /** Give back one charge (kill refunds etc.). */
+  refund(slot: SkillSlot) {
+    const max = this.maxCharges(slot);
+    this.charges[slot] = Math.min(max, this.charges[slot] + 1);
+    if (this.charges[slot] >= max) this.cd[slot] = 0;
+  }
+
+  /** Recharge one charge at a time. */
+  tickCharges(dtMs: number) {
+    for (const k of ['Q', 'E', 'R'] as const) {
+      const max = this.maxCharges(k);
+      if (this.charges[k] > max) this.charges[k] = max;
+      if (this.charges[k] >= max) { this.cd[k] = 0; continue; }
+      // the timer is started when a charge is spent (GameScene.tryCast); cooldown cuts just shorten it
+      this.cd[k] -= dtMs;
+      if (this.cd[k] <= 0) {
+        this.charges[k]++;
+        this.cd[k] = this.charges[k] < max ? this.cdOf(k) + this.cd[k] : 0;
+      }
+    }
+  }
+
   get weapon() {
     return WEAPONS[this.loadout.weapon.id];
   }
@@ -132,8 +177,12 @@ export class Player {
     this.sprite.setPosition(this.x, this.y + bob).setFlipX(left).setRotation(this.moving ? Math.sin(t * 12) * 0.06 : 0);
 
     // weapon held at the hand, pointing at the cursor
-    const id = this.loadout.weapon.id;
-    if (this.weaponImg.texture.key !== 'w_' + id) this.weaponImg.setTexture('w_' + id);
+    const wdef = WEAPONS[this.loadout.weapon.id];
+    const id = wdef.base ?? wdef.id;
+    if (this.weaponImg.texture.key !== 'w_' + id) {
+      this.weaponImg.setTexture('w_' + id);
+      if (wdef.ultimate) this.weaponImg.setTint(0xffe066); else this.weaponImg.clearTint();
+    }
     let rot = this.aimAngle;
     if (this.swingT > 0) rot += (left ? -1 : 1) * (1.3 - 2.6 * (1 - this.swingT / 0.15)); // melee swing arc
     const push = this.recoilT > 0 ? -4 : 0;

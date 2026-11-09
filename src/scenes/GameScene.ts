@@ -2,14 +2,17 @@ import Phaser from 'phaser';
 import { ARENA, BOT, DEBUG, H, SPEED, TOTAL_WAVES, TOUCH, W } from '../config';
 import { TouchControls } from '../ui/TouchControls';
 import { Bot } from '../game/bot';
-import { AFFIXES, Affix, BOSS_PHASES, ENEMIES, EnemyType, isBossType } from '../data/enemies';
+import { AFFIXES, Affix, BOSS_PHASES, ENEMIES, ENEMY_DMG, EnemyType, isBossType } from '../data/enemies';
 import { HEROES, HeroId, SkillSlot } from '../data/heroes';
 import { WAVES } from '../data/waves';
 import { applyCard, Card, cardLabel, rollCards } from '../game/cards';
 import { Enemy, SHIELD_ARC } from '../game/Enemy';
 import { Fx } from '../game/fx';
+import { Arena, THEMES, themeForWave } from '../game/arena';
 import { Player } from '../game/Player';
 import { Effect, SKILLS, updatePlayerSkills } from '../game/skills';
+import { SYNERGIES } from '../game/synergy';
+import { WEAPONS } from '../game/weapons';
 import { Hud } from '../ui/Hud';
 import { setMusicMood, sfx, toggleMute, unlockAudio } from '../sfx';
 import { saveSettings, settings } from '../settings';
@@ -28,12 +31,17 @@ interface PBullet {
   /** seconds before a boomerang turns back; 0 = normal bullet */
   boomerang: number;
   returning: boolean;
+  /** small blast on hit */
+  explode?: { r: number; dmg: number };
+  /** slow applied on hit (seconds) */
+  chill: number;
 }
 
 export interface PBulletOpts {
   x: number; y: number; angle: number; speed: number; dmg: number; pierce: number; tex: string; life: number;
   r?: number; kb?: number; scale?: number; primary?: boolean; quiet?: boolean; grow?: boolean;
   burn?: { dps: number; t: number }; boomerang?: number;
+  tint?: number; explode?: { r: number; dmg: number }; chill?: number;
 }
 
 interface EBullet {
@@ -87,6 +95,7 @@ export class GameScene extends Phaser.Scene {
   decoy: { x: number; y: number; r: number } | null = null;
   fx!: Fx;
   hud!: Hud;
+  arena!: Arena;
   wave = 0;
   waveTime = 0;
   spawnQueue: { at: number; type: EnemyType }[] = [];
@@ -155,7 +164,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   create() {
-    this.drawArena();
+    this.arena = new Arena(this);
+    this.arena.set('lava', false);
     this.fx = new Fx(this);
     this.player = new Player(this, HEROES[this.heroId], W / 2, H / 2);
     this.bars = this.add.graphics().setDepth(20);
@@ -198,18 +208,6 @@ export class GameScene extends Phaser.Scene {
     if (!settings.tutorialDone && !BOT) this.time.delayedCall(1800, () => this.hud.tutorial(TOUCH));
   }
 
-  private drawArena() {
-    const g = this.add.graphics().setDepth(0);
-    g.fillStyle(0x0b0d16).fillRect(0, 0, W, H);
-    g.fillStyle(0x121626).fillRect(ARENA.x, ARENA.y, ARENA.w, ARENA.h);
-    g.lineStyle(1, 0x1c2238, 1);
-    for (let x = ARENA.x; x <= ARENA.x + ARENA.w; x += 40) g.lineBetween(x, ARENA.y, x, ARENA.y + ARENA.h);
-    for (let y = ARENA.y; y <= ARENA.y + ARENA.h; y += 40) g.lineBetween(ARENA.x, y, ARENA.x + ARENA.w, y);
-    g.lineStyle(2, 0x3a2b5a, 0.8).strokeCircle(W / 2, H / 2, 200);
-    g.lineStyle(1, 0x3a2b5a, 0.5).strokeCircle(W / 2, H / 2, 120);
-    g.lineStyle(3, 0x6a4cff, 0.8).strokeRect(ARENA.x, ARENA.y, ARENA.w, ARENA.h);
-  }
-
   // ---------------------------------------------------------------- waves
 
   startWave(n: number) {
@@ -224,6 +222,11 @@ export class GameScene extends Phaser.Scene {
     this.spawnQueue.sort((a, b) => a.at - b.at);
     const boss = WAVES[n - 1].find((g) => isBossType(g.type));
     setMusicMood(boss ? 'boss' : 'battle');
+    const theme = themeForWave(n);
+    if (theme !== this.arena.current) {
+      this.arena.set(theme, true);
+      this.time.delayedCall(2000, () => this.hud.banner(`进入 · ${THEMES[theme].name}`, '#c8cde0'));
+    }
     if (n === 2 && !settings.tutorialDone) {
       settings.tutorialDone = true;
       saveSettings();
@@ -263,6 +266,7 @@ export class GameScene extends Phaser.Scene {
       }
       if (isBossType(type)) {
         this.boss = e;
+        this.arena.setBoss(true);
         this.shake(400, 0.012);
         this.hud.showBoss(e);
       } else if (type === 'elite') {
@@ -307,8 +311,12 @@ export class GameScene extends Phaser.Scene {
       bonus: this.bonusPick,
       onPick: (c: Card) => {
         this.run.picks.push(cardLabel(c, p));
+        const before = SYNERGIES.filter((sy) => p.syn(sy.id)).map((sy) => sy.id);
         applyCard(c, p);
         this.hud.refreshLoadout();
+        const gained = SYNERGIES.filter((sy) => p.syn(sy.id) && !before.includes(sy.id));
+        if (c.kind === 'evolve') this.time.delayedCall(400, () => this.hud.banner(`究极进化 · ${WEAPONS[c.id].name}`, '#ffe066'));
+        gained.forEach((sy, i) => this.time.delayedCall(400 + i * 1600, () => this.hud.banner(`羁绊激活 · ${sy.name}`, '#7be8ff')));
         if (this.bonusPick) {
           // boss reward: a second pick right away
           this.bonusPick = false;
@@ -356,11 +364,12 @@ export class GameScene extends Phaser.Scene {
 
   spawnPBullet(o: PBulletOpts) {
     const img = this.add.image(o.x, o.y, o.tex).setRotation(o.angle).setDepth(7).setScale(o.scale ?? 1);
+    if (o.tint !== undefined) img.setTint(o.tint);
     this.pBullets.push({
       img, x: o.x, y: o.y, vx: Math.cos(o.angle) * o.speed, vy: Math.sin(o.angle) * o.speed,
       dmg: o.dmg, r: o.r ?? 7, pierce: o.pierce, life: o.life, maxLife: o.life, age: 0, kb: o.kb ?? 90, hit: new Set(),
       primary: o.primary ?? true, quiet: o.quiet ?? false, grow: o.grow ?? false, burn: o.burn,
-      boomerang: o.boomerang ?? 0, returning: false,
+      boomerang: o.boomerang ?? 0, returning: false, explode: o.explode, chill: o.chill ?? 0,
     });
   }
 
@@ -423,6 +432,18 @@ export class GameScene extends Phaser.Scene {
   }
 
   // ---------------------------------------------------------------- combat
+
+  /** Enemies within `w` of the segment (x0,y0)-(x1,y1), e.g. a blink path. */
+  enemiesOnSegment(x0: number, y0: number, x1: number, y1: number, w: number) {
+    const dx = x1 - x0;
+    const dy = y1 - y0;
+    const len2 = Math.max(1, dx * dx + dy * dy);
+    return this.enemies.filter((e) => {
+      if (e.dead) return false;
+      const t = Phaser.Math.Clamp(((e.x - x0) * dx + (e.y - y0) * dy) / len2, 0, 1);
+      return Math.hypot(e.x - (x0 + dx * t), e.y - (y0 + dy * t)) <= w + e.r;
+    });
+  }
 
   enemiesInRadius(x: number, y: number, r: number) {
     return this.enemies.filter((e) => !e.dead && Math.hypot(e.x - x, e.y - y) <= r + e.r);
@@ -513,6 +534,7 @@ export class GameScene extends Phaser.Scene {
     if (e === this.boss) {
       this.boss = null;
       this.bossDefeated = true;
+      this.arena.setBoss(false);
       setMusicMood('battle');
       if (this.wave < TOTAL_WAVES) {
         this.bonusPick = true;
@@ -563,7 +585,7 @@ export class GameScene extends Phaser.Scene {
     let mult = 1 - Math.min(0.6, p.stats.armor);
     if (p.desperate) mult *= 0.85;
     if (p.rageT > 0 && p.rageArmor) mult *= 0.7;
-    const dmg = Math.max(1, Math.round(amount * mult));
+    const dmg = Math.max(1, Math.round(amount * mult * ENEMY_DMG));
     p.hp -= dmg;
     p.iframes = 0.6;
     this.run.dmgTaken += dmg;
@@ -599,12 +621,17 @@ export class GameScene extends Phaser.Scene {
     unlockAudio();
     if (this.over || this.intermission || this.scene.isPaused()) return;
     const p = this.player;
-    if (p.cd[slot] > 0) {
+    if (p.charges[slot] <= 0) {
       sfx('deny');
       return;
     }
     const eq = p.loadout[slot];
-    p.cd[slot] = p.cdOf(slot);
+    // 时隙 / 斩时: free dashes while time is stopped
+    const free = this.timeStopT > 0 && ((eq.id === 'blink' && p.syn('timeRift')) || (eq.id === 'dashStrike' && p.syn('timeSlash')));
+    if (!free) {
+      if (p.charges[slot] >= p.maxCharges(slot)) p.cd[slot] = p.cdOf(slot);
+      p.charges[slot]--;
+    }
     SKILLS[eq.id].cast(this, p, eq.lv);
     this.hud.pulse(slot);
   }
@@ -712,7 +739,7 @@ export class GameScene extends Phaser.Scene {
     else p.aimAngle = Math.atan2(ptr.worldY - p.y, ptr.worldX - p.x);
     p.iframes -= dt;
     p.rageT -= dt;
-    for (const k of ['Q', 'E', 'R'] as const) p.cd[k] = Math.max(0, p.cd[k] - dt * 1000);
+    p.tickCharges(dt * 1000);
     if (p.stats.regen) p.heal(p.stats.regen * dt);
 
     p.moving = false;
@@ -766,7 +793,8 @@ export class GameScene extends Phaser.Scene {
       e.burnTick -= dt;
       if (e.burnTick <= 0) {
         e.burnTick = 0.5;
-        this.damage(e, e.burnDps * 0.5, { dot: true, aoe: true });
+        const chilled = e.slowT > 0 || e.freezeT > 0;
+        this.damage(e, e.burnDps * 0.5 * (chilled && this.player.syn('frostfire') ? 2 : 1), { dot: true, aoe: true });
       }
       if (e.burnT <= 0) e.burnDps = 0;
     }
@@ -849,6 +877,11 @@ export class GameScene extends Phaser.Scene {
         if (b.burn && !e.dead) {
           e.burnT = b.burn.t;
           e.burnDps = Math.max(e.burnDps, b.burn.dps);
+        }
+        if (b.chill && !e.dead) e.slowT = Math.max(e.slowT, b.chill);
+        if (b.explode) {
+          this.fx.ring(b.x, b.y, b.explode.r, 0xffa040, 200, 0.35);
+          for (const o of this.enemiesInRadius(b.x, b.y, b.explode.r)) if (o !== e) this.damage(o, b.explode.dmg, { aoe: true, quiet: true });
         }
         if (!b.quiet) this.fx.burst(b.x, b.y, 0xffffff, 3, 120);
       }

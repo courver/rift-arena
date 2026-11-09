@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { BOT, H, PORTRAIT, RARITY_COLOR, RARITY_NAME, SPEED, TOTAL_WAVES, W, hex } from '../config';
-import { Card, describe } from '../game/cards';
+import { Card, describe, evolvesSoon } from '../game/cards';
 import type { Player } from '../game/Player';
 import { sfx } from '../sfx';
 import { button, textStyle } from '../ui/widgets';
@@ -72,8 +72,8 @@ export class UpgradeScene extends Phaser.Scene {
       const rar = this.add.text(cw / 2 - 14, -ch / 2 + 8, card.kind === 'stat' ? RARITY_NAME[v.rarity] : '', textStyle(13, '#9aa4b8')).setOrigin(1, 0);
       const icon = this.add.text(0, -62, v.icon, { fontFamily: 'sans-serif', fontSize: '34px', color: hex(col) }).setOrigin(0.5);
       const name = this.add.text(0, -20, v.title, textStyle(26, '#ffffff', true)).setOrigin(0.5);
-      const desc = this.add.text(0, 18, v.desc, { ...textStyle(15, '#dfe3f0'), align: 'center', lineSpacing: 6, wordWrap: { width: cw - 36, useAdvancedWrap: true } }).setOrigin(0.5, 0);
-      const key = this.add.text(0, ch / 2 - 18, `[${i + 1}]`, textStyle(14, '#8890a8')).setOrigin(0.5);
+      const desc = this.add.text(0, 10, v.desc, { ...textStyle(14, '#dfe3f0'), align: 'center', lineSpacing: 4, wordWrap: { width: cw - 30, useAdvancedWrap: true } }).setOrigin(0.5, 0);
+      const key = this.add.text(0, ch / 2 - 12, `[${i + 1}]`, textStyle(13, '#8890a8')).setOrigin(0.5);
       const c = this.add.container(x, y, [bg, band, tag, rar, icon, name, desc, key]).setSize(cw, ch).setInteractive({ useHandCursor: true });
       c.setAlpha(0).setY(y + 40);
       this.tweens.add({ targets: c, alpha: 1, y, delay: i * 80, duration: 260, ease: 'Back.easeOut' });
@@ -86,7 +86,8 @@ export class UpgradeScene extends Phaser.Scene {
 
   /** Bot prefers levelling what it has, sometimes tries a swap, like a typical player. */
   private botPick() {
-    const w = this.data_.cards.map((c) => (c.kind === 'level' ? 5 : c.kind === 'stat' ? 3 : 1.5));
+    const p = this.data_.player;
+    const w = this.data_.cards.map((c) => (c.kind === 'evolve' ? 100 : c.kind === 'level' ? (evolvesSoon(p, c.slot) ? 9 : 4) : c.kind === 'stat' ? 3 : 1.5));
     let r = Math.random() * w.reduce((a, b) => a + b, 0);
     let i = 0;
     while (i < w.length - 1 && r > w[i]) r -= w[i++];

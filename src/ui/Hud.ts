@@ -15,6 +15,7 @@ interface SlotView {
   box: Phaser.GameObjects.Container;
   shade: Phaser.GameObjects.Rectangle;
   cdText: Phaser.GameObjects.Text;
+  chg: Phaser.GameObjects.Text;
 }
 
 const SLOT = 58;
@@ -69,13 +70,15 @@ export class Hud {
       const bg = s.add.rectangle(0, 0, SLOT, SLOT, 0x1a1f33, 0.85).setStrokeStyle(2, color);
       const icon = s.add.text(0, -6, def.icon, { fontFamily: FONT, fontSize: '24px', color: hex(color) }).setOrigin(0.5);
       const keyLbl = s.add.text(-SLOT / 2 + 4, -SLOT / 2 + 2, KEY_LABEL[slot], st(11)).setOrigin(0, 0);
-      const lv = s.add.text(SLOT / 2 - 3, -SLOT / 2 + 2, `Lv${eq.lv}`, st(10, '#ffd34a')).setOrigin(1, 0);
+      const ult = slot === 'weapon' && (def as { ultimate?: boolean }).ultimate;
+      const lv = s.add.text(SLOT / 2 - 3, -SLOT / 2 + 2, ult ? '★' : `Lv${eq.lv}`, st(10, '#ffd34a')).setOrigin(1, 0);
+      const chg = s.add.text(SLOT / 2 - 3, SLOT / 2 - 16, '', st(11, '#7be8ff')).setOrigin(1, 1);
       const name = s.add.text(0, SLOT / 2 - 2, def.name, st(11, '#dfe3f0')).setOrigin(0.5, 1);
       const shade = s.add.rectangle(0, SLOT / 2, SLOT, SLOT, 0x000000, 0.65).setOrigin(0.5, 1);
       shade.scaleY = 0;
       const cdText = s.add.text(0, -6, '', st(18)).setOrigin(0.5);
-      const box = s.add.container(x, y, [bg, icon, name, shade, keyLbl, lv, cdText]).setDepth(61).setScale(TOUCH ? 0.75 : 1);
-      this.slots.push({ slot, box, shade, cdText });
+      const box = s.add.container(x, y, [bg, icon, name, shade, keyLbl, lv, chg, cdText]).setDepth(61).setScale(TOUCH ? 0.75 : 1);
+      this.slots.push({ slot, box, shade, cdText, chg });
     });
   }
 
@@ -173,10 +176,13 @@ export class Hud {
 
     for (const v of this.slots) {
       if (v.slot === 'weapon') continue;
-      const rem = p.cd[v.slot];
+      const empty = p.charges[v.slot] <= 0;
+      const rem = empty ? p.cd[v.slot] : 0;
       const total = p.cdOf(v.slot);
       v.shade.scaleY = rem > 0 ? Math.min(1, rem / total) : 0;
       v.cdText.setText(rem > 0 ? (rem > 1000 ? Math.ceil(rem / 1000) + '' : (rem / 1000).toFixed(1)) : '');
+      const max = p.maxCharges(v.slot);
+      v.chg.setText(max > 1 ? '●'.repeat(p.charges[v.slot]) + '○'.repeat(max - p.charges[v.slot]) : '');
     }
 
     if (this.debugText) {

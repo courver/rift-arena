@@ -1,6 +1,6 @@
 import type { Player } from '../game/Player';
 
-export type Rarity = 'common' | 'rare' | 'epic';
+export type Rarity = 'common' | 'rare' | 'epic' | 'legend';
 
 /** Generic stat upgrades. Weapon / skill level-ups and swaps live in game/cards.ts. */
 export interface Upgrade {
@@ -12,7 +12,7 @@ export interface Upgrade {
   apply: (p: Player) => void;
 }
 
-const RARITY_WEIGHT: Record<Rarity, number> = { common: 60, rare: 30, epic: 12 };
+const RARITY_WEIGHT: Record<Rarity, number> = { common: 60, rare: 30, epic: 12, legend: 0 };
 
 export const UPGRADES: Upgrade[] = [
   { id: 'sharp', name: '锋锐', desc: '伤害 +15%', rarity: 'common', max: 6, apply: (p) => (p.stats.dmgMult += 0.15) },

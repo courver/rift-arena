@@ -10,7 +10,7 @@ import { ART_SCALE } from './art';
 const b =(cond: boolean) => (cond ? 1 : 0);
 
 /** How the bot should use a skill. */
-export type SkillUse = 'escape' | 'engage' | 'aoe' | 'zone' | 'summon' | 'ult';
+export type SkillUse = 'escape' | 'engage' | 'strike' | 'aoe' | 'zone' | 'summon' | 'ult';
 
 export interface SkillDef {
   id: string;
@@ -20,6 +20,8 @@ export interface SkillDef {
   desc: string;
   use: SkillUse;
   cd(lv: number): number;
+  /** stored charges at this level (default 1) */
+  charges?(lv: number): number;
   /** text for reaching lv 2..5 (index 0 = lv2) */
   levels: string[];
   cast(s: GameScene, p: Player, lv: number): void;
@@ -37,7 +39,12 @@ function frostNova(s: GameScene, p: Player, x: number, y: number, radius: number
   const r = radius * p.stats.areaMult;
   s.fx.ring(x, y, r, 0x9be8ff, 350);
   s.fx.burst(x, y, 0x9be8ff, 24, 320);
+  const frostfire = p.syn('frostfire');
   for (const e of s.enemiesInRadius(x, y, r)) {
+    if (frostfire && e.burnT > 0) {
+      s.damage(e, 45, { aoe: true, big: true });
+      s.fx.burst(e.x, e.y, 0xff9a3a, 8, 200);
+    }
     s.damage(e, dmg, { kbAngle: Math.atan2(e.y - y, e.x - x), kb: 180, aoe: true });
     if (freeze && !e.isBoss) e.freezeT = 1.2;
     e.slowT = 2.2;
@@ -82,8 +89,22 @@ class Decoy implements Effect {
     s.tweens.add({ targets: this.img, alpha: 0.4, yoyo: true, repeat: -1, duration: 300 });
     s.decoy = this;
   }
+  private throwT = 0.2;
   update(s: GameScene, dt: number) {
     this.t -= dt;
+    if (s.player.syn('phantomBlade')) {
+      this.throwT -= dt;
+      if (this.throwT <= 0) {
+        this.throwT = 0.7;
+        let best = 500;
+        let a = Math.random() * Math.PI * 2;
+        for (const e of s.enemies) {
+          const d = Math.hypot(e.x - this.x, e.y - this.y);
+          if (!e.dead && d < best) { best = d; a = Math.atan2(e.y - this.y, e.x - this.x); }
+        }
+        s.spawnPBullet({ x: this.x, y: this.y, angle: a, speed: 600, dmg: 24, pierce: 999, tex: 'blade', life: 3, r: 16, boomerang: 0.4, primary: false });
+      }
+    }
     if (this.t > 0) return true;
     if (this.boom) blast(s, this.x, this.y, 130 * s.player.stats.areaMult, this.boom, 0xc08bff);
     return false;
@@ -96,6 +117,7 @@ class Decoy implements Effect {
 class GravityWell implements Effect {
   img: Phaser.GameObjects.Image;
   private tick = 0;
+  private zapT = 0.3;
   constructor(s: GameScene, private x: number, private y: number, private r: number, private t: number, private dmg: number, private implode: number) {
     this.img = s.add.image(x, y, 'ring').setTint(0xb07bff).setAlpha(0.8).setDepth(3).setScale((r * 2) / 128);
     s.fx.ring(x, y, r, 0xb07bff, 300, 0.2);
@@ -116,6 +138,16 @@ class GravityWell implements Effect {
     if (this.tick <= 0) {
       this.tick = 0.3;
       for (const e of s.enemiesInRadius(this.x, this.y, this.r)) s.damage(e, this.dmg, { aoe: true });
+    }
+    this.zapT -= dt;
+    if (this.zapT <= 0 && s.player.syn('thunderWell')) {
+      this.zapT = 0.6;
+      const inside = Phaser.Utils.Array.Shuffle(s.enemiesInRadius(this.x, this.y, this.r)).slice(0, 3);
+      for (const e of inside) {
+        s.fx.lightning([{ x: e.x + Phaser.Math.Between(-30, 30), y: e.y - 260 }, { x: e.x, y: e.y }], 0xa8b8ff);
+        s.damage(e, 30, { aoe: true });
+      }
+      if (inside.length) sfx('zap');
     }
     if (this.t > 0) return true;
     if (this.implode) blast(s, this.x, this.y, this.r * 0.7, this.implode, 0xb07bff);
@@ -147,10 +179,11 @@ class Turret implements Effect {
       this.img.setRotation(a);
       if (this.fireT <= 0) {
         this.fireT = 0.4;
-        const n = 1 + b(this.lv >= 3);
+        const battery = s.player.syn('battery');
+        const n = (1 + b(this.lv >= 3)) * (battery ? 3 : 1);
         for (let i = 0; i < n; i++) {
-          const aa = a + (i - (n - 1) / 2) * 0.12;
-          s.spawnPBullet({ x: this.x, y: this.y, angle: aa, speed: 650, dmg: 11 + 3 * (this.lv - 1), pierce: this.lv >= 5 ? 3 : 1, tex: 'tbolt', life: 0.8, primary: false });
+          const aa = a + (i - (n - 1) / 2) * (battery ? 0.16 : 0.12);
+          s.spawnPBullet({ x: this.x, y: this.y, angle: aa, speed: 650, dmg: 11 + 3 * (this.lv - 1), pierce: this.lv >= 5 ? 3 : 1, tex: battery ? 'pellet' : 'tbolt', life: 0.8, primary: false });
         }
         sfx('shoot');
       }
@@ -209,13 +242,16 @@ class Laser implements Effect {
 export const SKILLS: Record<string, SkillDef> = {
   // ---- Q: mobility ----
   blink: {
-    id: 'blink', slot: 'Q', name: '相位闪', icon: '➤', use: 'escape',
-    desc: '向移动方向瞬移，短暂无敌',
-    cd: (lv) => 4000 - 300 * (lv - 1),
-    levels: ['冷却 -0.3 秒', '落点释放小型霜环', '冷却 -0.3 秒', '距离与霜环范围 +30%'],
+    id: 'blink', slot: 'Q', name: '相位闪', icon: '➤', use: 'strike',
+    desc: '瞬移穿过敌群，斩伤路径上的所有敌人，短暂无敌',
+    cd: (lv) => 4000 - 250 * (lv - 1),
+    charges: (lv) => (lv >= 4 ? 2 : 1),
+    levels: ['路径伤害 +6 · 冷却 -0.25 秒', '穿行击杀敌人时返还 1 层充能', '充能变为 2 层', '落点星爆 · 路径伤害 ×1.5'],
     cast(s, p, lv) {
       const a = dashDir(s, p);
-      const dist = 200 * (lv >= 5 ? 1.3 : 1);
+      const dist = 220;
+      const x0 = p.x;
+      const y0 = p.y;
       s.fx.afterimage(p.sprite, p.hero.color);
       for (let i = 1; i <= 4; i++) {
         p.x += (Math.cos(a) * dist) / 4;
@@ -223,17 +259,33 @@ export const SKILLS: Record<string, SkillDef> = {
         s.clampToArena(p);
         if (i < 4) s.fx.burst(p.x, p.y, p.hero.color, 3, 60);
       }
-      p.iframes = Math.max(p.iframes, 0.35);
+      p.iframes = Math.max(p.iframes, 0.2);
+      s.fx.streak(x0, y0, p.x, p.y, p.hero.color);
+      // cut everything along the path
+      const dmg = (14 + 6 * (lv - 1)) * (lv >= 5 ? 1.5 : 1);
+      const hit = s.enemiesOnSegment(x0, y0, p.x, p.y, 34);
+      let refunded = false;
+      for (const e of hit) {
+        const killed = s.damage(e, dmg, { aoe: true, kbAngle: a + Math.PI / 2, kb: 140 });
+        if (killed && lv >= 3 && !refunded) {
+          refunded = true;
+          p.refund('Q');
+          s.fx.text(p.x, p.y - 26, '充能 +1', '#5ee0ff');
+        }
+      }
+      if (hit.length >= 3) s.hitstop = Math.max(s.hitstop, 0.05);
       s.fx.ring(p.x, p.y, 40, p.hero.color, 200);
-      if (lv >= 3) frostNova(s, p, p.x, p.y, 95 * (lv >= 5 ? 1.3 : 1), 22 + 5 * (lv - 1), false);
-      sfx('blink');
+      if (lv >= 5) frostNova(s, p, p.x, p.y, 110, 40, false);
+      if (p.syn('starTrail')) p.trailT = 2.5;
+      sfx(hit.length ? 'slash' : 'blink');
     },
   },
   dashStrike: {
     id: 'dashStrike', slot: 'Q', name: '突进斩', icon: '⇶', use: 'engage',
     desc: '冲向准星方向，沿途造成伤害，短暂无敌',
     cd: (lv) => 5000 - 300 * (lv - 1),
-    levels: ['伤害 +10', '击杀敌人时刷新冷却', '伤害 +10', '突进距离 +40%'],
+    charges: (lv) => (lv >= 5 ? 2 : 1),
+    levels: ['伤害 +10', '击杀敌人时返还 1 层充能', '伤害 +10', '2 层充能 · 突进距离 +40%'],
     cast(s, p, lv) {
       const dur = 0.16;
       const dist = 240 * (lv >= 5 ? 1.4 : 1);
@@ -365,8 +417,15 @@ export const SKILLS: Record<string, SkillDef> = {
 
 /** Per-frame ability logic tied to the player (dash contact, whirlwind ticks). */
 export function updatePlayerSkills(s: GameScene, p: Player, dt: number) {
+  p.trailT -= dt;
   if (p.dashT > 0) {
     p.dashT -= dt;
+    if (p.dashT <= 0 && p.syn('shadowDance')) {
+      p.whirlT = Math.max(p.whirlT, 0.8);
+      p.whirlTick = 0;
+      p.whirlLv = p.loadout.E.id === 'whirlwind' ? p.loadout.E.lv : 1;
+      s.spawnWhirl(p);
+    }
     p.x += p.dashVx * dt;
     p.y += p.dashVy * dt;
     s.clampToArena(p);
@@ -376,7 +435,7 @@ export function updatePlayerSkills(s: GameScene, p: Player, dt: number) {
       if (Math.hypot(e.x - p.x, e.y - p.y) < e.r + p.r + 14) {
         p.dashHit.add(e);
         const killed = s.damage(e, p.dashDmg, { kbAngle: Math.atan2(p.dashVy, p.dashVx) + Math.PI / 2, kb: 300, aoe: true });
-        if (killed && p.dashRefund) p.cd.Q = 0;
+        if (killed && p.dashRefund) p.refund('Q');
       }
     }
   }

@@ -41,6 +41,8 @@ function fmt(sec: number) {
 export class EndScene extends Phaser.Scene {
   private rating = 0;
   private tags = new Set<string>();
+  /** free-text feedback, a DOM textarea laid over the canvas */
+  private note: HTMLTextAreaElement | null = null;
 
   constructor() {
     super('End');
@@ -49,6 +51,7 @@ export class EndScene extends Phaser.Scene {
   create(d: EndData) {
     this.rating = 0;
     this.tags = new Set();
+    this.input.keyboard?.clearCaptures();
     this.add.rectangle(W / 2, H / 2, W, H, 0x0b0d16);
     this.cameras.main.fadeIn(300);
     const hero = HEROES[d.hero];
@@ -123,7 +126,11 @@ export class EndScene extends Phaser.Scene {
         this.saveFeedback(d);
       });
     });
-    y += Math.ceil(TAGS.length / perRow) * 42 + 18;
+    y += Math.ceil(TAGS.length / perRow) * 42 + 8;
+    if (!BOT_LOOP) {
+      this.makeNote(y, d);
+      y += 94;
+    }
     const copied = this.add.text(W / 2, y + 30, '', textStyle(13, '#7bff9e')).setOrigin(0.5, 0);
     button(this, W / 2, y + 6, '复制对局报告（发给作者）', () => {
       void this.copyReport(d).then((ok) => copied.setText(ok ? '已复制，粘贴到聊天里发给作者即可' : '复制失败，请截图本页面'));
@@ -132,11 +139,46 @@ export class EndScene extends Phaser.Scene {
     const by = PORTRAIT ? H - 110 : H - 60;
     button(this, W / 2 - 130, by, '再来一局', () => this.scene.start('Game', { hero: d.hero }));
     button(this, W / 2 + 130, by, '换英雄', () => this.scene.start('Menu'), 220, 0x8890a8);
-    this.input.keyboard?.once('keydown-ENTER', () => this.scene.start('Game', { hero: d.hero }));
+    this.input.keyboard?.on('keydown-ENTER', () => { if (document.activeElement !== this.note) this.scene.start('Game', { hero: d.hero }); });
     if (BOT_LOOP) {
       const fixed = new URLSearchParams(location.search).get('hero');
       this.time.delayedCall(800, () => this.scene.start('Game', { hero: fixed ? d.hero : d.hero === 'lumen' ? 'kael' : 'lumen' }));
     }
+  }
+
+  private makeNote(y: number, d: EndData) {
+    const ta = document.createElement('textarea');
+    ta.maxLength = 300;
+    ta.placeholder = '想说点什么？哪里太难、哪里不爽、想要什么新玩法……（选填，会一起复制进报告）';
+    Object.assign(ta.style, {
+      position: 'fixed', zIndex: '15', boxSizing: 'border-box', resize: 'none', outline: 'none',
+      background: '#151a2c', color: '#dfe3f0', border: '1px solid #4a5578', borderRadius: '6px',
+      fontFamily: 'inherit', padding: '6px 10px', touchAction: 'auto', userSelect: 'text', webkitUserSelect: 'text',
+    } as Partial<CSSStyleDeclaration>);
+    // keep keys away from the game's keyboard shortcuts while typing
+    ta.addEventListener('keydown', (e) => e.stopPropagation());
+    ta.addEventListener('keyup', (e) => e.stopPropagation());
+    ta.addEventListener('input', () => this.saveFeedback(d));
+    document.body.appendChild(ta);
+    this.note = ta;
+    const w = Math.min(560, W - 60);
+    const place = () => {
+      const r = this.game.canvas.getBoundingClientRect();
+      const k = r.width / W;
+      Object.assign(ta.style, {
+        left: `${r.left + (W / 2 - w / 2) * k}px`, top: `${r.top + y * k}px`,
+        width: `${w * k}px`, height: `${64 * k}px`, fontSize: `${Math.max(12, 14 * k)}px`,
+      });
+    };
+    place();
+    this.scale.on('resize', place);
+    window.addEventListener('resize', place);
+    this.events.once('shutdown', () => {
+      this.scale.off('resize', place);
+      window.removeEventListener('resize', place);
+      ta.remove();
+      this.note = null;
+    });
   }
 
   private report(d: EndData) {
@@ -148,6 +190,7 @@ export class EndScene extends Phaser.Scene {
       `构筑：${loadoutText(lo, ' / ')}`,
       `选卡顺序：${d.run.picks.join(', ')}`,
       `评分：${this.rating ? MOODS[this.rating - 1] + ' ' + this.rating + '/5' : '未评分'}　标签：${[...this.tags].join('、') || '无'}`,
+      `留言：${this.note?.value.trim() || '（无）'}`,
       `设备：${navigator.userAgent}`,
     ].join('\n');
   }
@@ -173,7 +216,7 @@ export class EndScene extends Phaser.Scene {
   private saveFeedback(d: EndData) {
     try {
       const list = JSON.parse(localStorage.getItem(FEEDBACK_KEY) ?? '[]') as object[];
-      const entry = { at: Date.now(), hero: d.hero, win: d.win, wave: d.wave, by: d.by, time: Math.round(d.run.time), rating: this.rating, tags: [...this.tags] };
+      const entry = { at: Date.now(), hero: d.hero, win: d.win, wave: d.wave, by: d.by, time: Math.round(d.run.time), rating: this.rating, tags: [...this.tags], note: this.note?.value.trim() ?? '' };
       const last = list[list.length - 1] as { at?: number } | undefined;
       if (last && last.at && Date.now() - last.at < 60000 && (last as { time?: number }).time === entry.time) list[list.length - 1] = entry;
       else list.push(entry);

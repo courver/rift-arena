@@ -143,7 +143,7 @@ export function startLab() {
     // final weapon usage and its win rate
     const wStats: Record<string, { n: number; w: number }> = {};
     for (const r of runs) {
-      const id = Object.keys(WEAPONS).find((k) => r.loadout.startsWith(k)) ?? '?';
+      const id = r.loadout.split(' ')[0].replace(/\d+$/, '');
       (wStats[id] ??= { n: 0, w: 0 }).n++;
       if (r.win) wStats[id].w++;
     }

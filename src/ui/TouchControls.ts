@@ -103,12 +103,18 @@ export class TouchControls {
       const eq = p.loadout[b.slot];
       const def = SKILLS[eq.id];
       const color = b.slot === 'R' ? 0xffd34a : p.hero.color;
-      const rem = p.cd[b.slot];
+      const rem = p.charges[b.slot] <= 0 ? p.cd[b.slot] : 0;
+      const max = p.maxCharges(b.slot);
       g.fillStyle(0x0b0d16, 0.55).fillCircle(b.x, b.y, b.r);
       g.lineStyle(3, color, rem > 0 ? 0.35 : 0.95).strokeCircle(b.x, b.y, b.r);
       if (rem > 0) {
         const frac = Math.min(1, rem / p.cdOf(b.slot));
         g.fillStyle(0x000000, 0.55).slice(b.x, b.y, b.r, -Math.PI / 2, -Math.PI / 2 + frac * Math.PI * 2, false).fillPath();
+      }
+      if (max > 1) {
+        for (let i = 0; i < max; i++) {
+          g.fillStyle(i < p.charges[b.slot] ? 0x7be8ff : 0x2a3150, 1).fillCircle(b.x - (max - 1) * 7 + i * 14, b.y + b.r + 10, 4);
+        }
       }
       b.icon.setText(rem > 0 ? (rem > 1000 ? String(Math.ceil(rem / 1000)) : (rem / 1000).toFixed(1)) : def.icon)
         .setColor(rem > 0 ? '#c8cde0' : hex(color));

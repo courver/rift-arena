@@ -91,6 +91,14 @@ export class Fx {
     this.scene.tweens.add({ targets: g, alpha: 0, duration: 160, onComplete: () => g.destroy() });
   }
 
+  /** Bright blade streak along a dash path. */
+  streak(x0: number, y0: number, x1: number, y1: number, color: number) {
+    const g = this.scene.add.graphics().setDepth(9);
+    g.lineStyle(14, color, 0.35).lineBetween(x0, y0, x1, y1);
+    g.lineStyle(4, 0xffffff, 0.95).lineBetween(x0, y0, x1, y1);
+    this.scene.tweens.add({ targets: g, alpha: 0, duration: 220, onComplete: () => g.destroy() });
+  }
+
   /** Line between two points that fades, e.g. a priest's heal. */
   beam(x0: number, y0: number, x1: number, y1: number, color: number) {
     const g = this.scene.add.graphics().setDepth(4);
